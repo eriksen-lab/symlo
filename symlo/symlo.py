@@ -21,9 +21,6 @@ from pyscf.lib.exceptions import PointGroupSymmetryError
 from pyscf.lib import logger
 from itertools import combinations
 from typing import TYPE_CHECKING
-import matplotlib.pylab as plt
-from matplotlib.colors import LogNorm
-import seaborn as sns
 
 from symlo.tools import get_symm_op_matrices, get_symm_coord
 
@@ -110,19 +107,10 @@ def symm_eqv_mo(
     # determine optimal ordering of orbitals
     reorder_occ = sc.sparse.csgraph.reverse_cuthill_mckee(sparse_trafo_occ)
 
-    fig_occ, axs_occ = plt.subplots(
-        figsize=(12, 4), ncols=3, constrained_layout=True, sharex=True, sharey=True
-    )
-
-    sns.heatmap(
-        all_symm_trafo_occ_ovlp, linewidth=0.5, ax=axs_occ[0], norm=LogNorm(), cbar=None
-    )
-    sns.heatmap(
+    np.save("occ_overlap_before.npy", all_symm_trafo_occ_ovlp)
+    np.save(
+        "occ_overlap_sorted.npy",
         all_symm_trafo_occ_ovlp[reorder_occ.reshape(-1, 1), reorder_occ],
-        linewidth=0.5,
-        ax=axs_occ[1],
-        norm=LogNorm(),
-        cbar=None,
     )
 
     # reorder array
@@ -178,23 +166,10 @@ def symm_eqv_mo(
     # determine optimal ordering of orbitals
     reorder_virt = sc.sparse.csgraph.reverse_cuthill_mckee(sparse_trafo_virt)
 
-    fig_virt, axs_virt = plt.subplots(
-        figsize=(12, 4), ncols=3, constrained_layout=True, sharex=True, sharey=True
-    )
-
-    sns.heatmap(
-        all_symm_trafo_virt_ovlp,
-        linewidth=0.5,
-        ax=axs_virt[0],
-        norm=LogNorm(),
-        cbar=None,
-    )
-    sns.heatmap(
+    np.save("virt_overlap_before.npy", all_symm_trafo_virt_ovlp)
+    np.save(
+        "virt_overlap_sorted.npy",
         all_symm_trafo_virt_ovlp[reorder_virt.reshape(-1, 1), reorder_virt],
-        linewidth=0.5,
-        ax=axs_virt[1],
-        norm=LogNorm(),
-        cbar=None,
     )
 
     # reorder array
@@ -277,21 +252,8 @@ def symm_eqv_mo(
     all_symm_trafo_occ_ovlp /= nop
     all_symm_trafo_virt_ovlp /= nop
 
-    sns.heatmap(all_symm_trafo_occ_ovlp, linewidth=0.5, ax=axs_occ[2], norm=LogNorm())
-
-    axs_occ[0].set_title("Before sorting")
-    axs_occ[1].set_title("After sorting")
-    axs_occ[2].set_title("After symmetrization")
-
-    fig_occ.savefig("plot_occ.pdf")
-
-    sns.heatmap(all_symm_trafo_virt_ovlp, linewidth=0.5, ax=axs_virt[2], norm=LogNorm())
-
-    axs_virt[0].set_title("Before sorting")
-    axs_virt[1].set_title("After sorting")
-    axs_virt[2].set_title("After symmetrization")
-
-    fig_virt.savefig("plot_virt.pdf")
+    np.save("occ_overlap_after.npy", all_symm_trafo_occ_ovlp)
+    np.save("virt_overlap_after.npy", all_symm_trafo_virt_ovlp)
 
     return symm_eqv_mos, mo_coeff
 
@@ -560,6 +522,24 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
         )
         self._keys = set(self.__dict__.keys()).union(keys)
         self.symm_ops = symm_ops
+
+    def dump_flags(self, verbose: Optional[int] = None):
+        log = logger.new_logger(self, verbose)
+        log.info("\n")
+        log.info("******** %s ********", self.__class__)
+        log.info("conv_tol = %s", self.conv_tol)
+        log.info("max_cycle = %s", self.max_cycle)
+        log.info("max_stepsize = %s", self.max_stepsize)
+        log.info("max_iters = %s", self.max_iters)
+        log.info("kf_interval = %s", self.kf_interval)
+        log.info("kf_trust_region = %s", self.kf_trust_region)
+        log.info("ah_start_tol = %s", self.ah_start_tol)
+        log.info("ah_start_cycle = %s", self.ah_start_cycle)
+        log.info("ah_level_shift = %s", self.ah_level_shift)
+        log.info("ah_conv_tol = %s", self.ah_conv_tol)
+        log.info("ah_lindep = %s", self.ah_lindep)
+        log.info("ah_max_cycle = %s", self.ah_max_cycle)
+        log.info("ah_trust_region = %s", self.ah_trust_region)
 
     def kernel(
         self, callback: Optional[Callable] = None, verbose: Optional[int] = None
@@ -1211,7 +1191,7 @@ def symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.ndarra
     coords -= symm_orig
 
     # rotate coordinates to symmetry axes
-    coords = (symm_axes.T @ coords.T).T
+    coords = (symm_axes @ coords.T).T
 
     # get Wigner D matrices to rotate aos from input coordinate system to symmetry axes
     Ds = symm.basis._ao_rotation_matrices(mol, symm_axes)
