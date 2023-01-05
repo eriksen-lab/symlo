@@ -665,29 +665,18 @@ class symmetrize_all(symmetrize):
 
                 interm[-1].append(
                     {
-                        "ss_ij": ss[incl.reshape(-1, 1), incl],
-                        "ss_ia": ss[incl.reshape(-1, 1), excl],
-                        "ss_ai": ss[excl.reshape(-1, 1), incl],
-                        "ss_ab": ss[excl.reshape(-1, 1), excl],
-                        "su_ia": su[incl.reshape(-1, 1), excl],
-                        "su_ab": su[excl.reshape(-1, 1), excl],
-                        "us_ij": us[incl.reshape(-1, 1), incl],
-                        "us_ia": us[incl.reshape(-1, 1), excl],
                         "uu_ia": uu[incl.reshape(-1, 1), excl],
+                        "su_pa": su[:, excl],
+                        "us_ip": us[incl, :],
+                        "ss_pq": ss,
                     }
                 )
 
-                interm[-1][-1]["su_ia@su_ia.T"] = (
-                    interm[-1][-1]["su_ia"] @ interm[-1][-1]["su_ia"].T
+                interm[-1][-1]["su_pa@su_pa.T"] = (
+                    interm[-1][-1]["su_pa"] @ interm[-1][-1]["su_pa"].T
                 )
-                interm[-1][-1]["su_ab@su_ab.T"] = (
-                    interm[-1][-1]["su_ab"] @ interm[-1][-1]["su_ab"].T
-                )
-                interm[-1][-1]["us_ij.T@us_ij"] = (
-                    interm[-1][-1]["us_ij"].T @ interm[-1][-1]["us_ij"]
-                )
-                interm[-1][-1]["us_ia.T@us_ia"] = (
-                    interm[-1][-1]["us_ia"].T @ interm[-1][-1]["us_ia"]
+                interm[-1][-1]["us_ip.T@us_ip"] = (
+                    interm[-1][-1]["us_ip"].T @ interm[-1][-1]["us_ip"]
                 )
 
         # calculate gradient
@@ -697,15 +686,12 @@ class symmetrize_all(symmetrize):
                 zip(self.incl_orbs[op], self.excl_orbs[op])
             ):
 
-                su_ia = interm[op][orbset]["su_ia"]
                 uu_ia = interm[op][orbset]["uu_ia"]
-                us_ij = interm[op][orbset]["us_ij"]
-                su_ab = interm[op][orbset]["su_ab"]
-                us_ia = interm[op][orbset]["us_ia"]
+                su_pa = interm[op][orbset]["su_pa"]
+                us_ip = interm[op][orbset]["us_ip"]
 
-                g0[incl.reshape(-1, 1), incl] += su_ia @ uu_ia.T
-                g0[incl.reshape(-1, 1), excl] += us_ij.T @ uu_ia - uu_ia @ su_ab.T
-                g0[excl.reshape(-1, 1), excl] += us_ia.T @ uu_ia
+                g0[incl, :] -= uu_ia @ su_pa.T
+                g0[excl, :] -= uu_ia.T @ us_ip
 
         g = self.pack_uniq_var(g0 - g0.T) * 2
 
@@ -716,30 +702,21 @@ class symmetrize_all(symmetrize):
                 zip(self.incl_orbs[op], self.excl_orbs[op])
             ):
 
-                su_ia = interm[op][orbset]["su_ia"]
-                us_ij = interm[op][orbset]["us_ij"]
-                su_ab = interm[op][orbset]["su_ab"]
+                us_ij = interm[op][orbset]["us_ip"][:, incl]
+                su_ab = interm[op][orbset]["su_pa"][excl, :]
                 uu_ia = interm[op][orbset]["uu_ia"]
-                ss_ai = interm[op][orbset]["ss_ai"]
-                us_ia = interm[op][orbset]["us_ia"]
-                su_ia_su_iaT = interm[op][orbset]["su_ia@su_ia.T"]
-                su_ab_su_abT = interm[op][orbset]["su_ab@su_ab.T"]
-                us_ijT_us_ij = interm[op][orbset]["us_ij.T@us_ij"]
-                us_iaT_us_ia = interm[op][orbset]["us_ia.T@us_ia"]
+                ss_ai = interm[op][orbset]["ss_pq"][excl.reshape(-1, 1), incl]
 
-                h_diag0[incl.reshape(-1, 1), incl] += np.diag(su_ia_su_iaT)[
-                    :, np.newaxis
-                ]
-                h_diag0[incl.reshape(-1, 1), excl] += (
-                    np.diag(us_ijT_us_ij)[:, np.newaxis]
-                    + np.diag(su_ab_su_abT)[np.newaxis, :]
-                    - np.einsum("bb,jj->jb", su_ab, us_ij)
-                    - 2 * np.einsum("jb,bj->jb", uu_ia, ss_ai)
-                    - np.einsum("jj,bb->jb", us_ij, su_ab)
+                su_pa_su_paT = interm[op][orbset]["su_pa@su_pa.T"]
+                us_ipT_us_ip = interm[op][orbset]["us_ip.T@us_ip"]
+
+                h_diag0[incl, :] += np.diag(su_pa_su_paT)[np.newaxis, :]
+                h_diag0[excl, :] += np.diag(us_ipT_us_ip)[np.newaxis, :]
+                h_diag0[incl.reshape(-1, 1), excl] -= (
+                    np.einsum("ii,aa->ia", us_ij, su_ab)
+                    + 2 * np.einsum("ia,ai->ia", uu_ia, ss_ai)
+                    + np.einsum("aa,ii->ia", su_ab, us_ij)
                 )
-                h_diag0[excl.reshape(-1, 1), excl] += np.diag(us_iaT_us_ia)[
-                    :, np.newaxis
-                ]
 
         h_diag = self.pack_uniq_var(h_diag0 + h_diag0.T) * 2
 
@@ -755,64 +732,27 @@ class symmetrize_all(symmetrize):
                     zip(self.incl_orbs[op], self.excl_orbs[op])
                 ):
 
-                    x_ij = x[incl.reshape(-1, 1), incl]
-                    x_ia = x[incl.reshape(-1, 1), excl]
-                    x_ab = x[excl.reshape(-1, 1), excl]
+                    x_ip = x[incl, :]
+                    x_ap = x[excl, :]
 
-                    su_ia = interm[op][orbset]["su_ia"]
-                    su_ab = interm[op][orbset]["su_ab"]
-                    us_ij = interm[op][orbset]["us_ij"]
-                    ss_ij = interm[op][orbset]["ss_ij"]
+                    su_pa = interm[op][orbset]["su_pa"]
+                    us_ip = interm[op][orbset]["us_ip"]
                     uu_ia = interm[op][orbset]["uu_ia"]
-                    us_ia = interm[op][orbset]["us_ia"]
-                    ss_ia = interm[op][orbset]["ss_ia"]
-                    ss_ai = interm[op][orbset]["ss_ai"]
-                    ss_ab = interm[op][orbset]["ss_ab"]
+                    ss_pq = interm[op][orbset]["ss_pq"]
 
-                    su_ia_su_iaT = interm[op][orbset]["su_ia@su_ia.T"]
-                    su_ab_su_abT = interm[op][orbset]["su_ab@su_ab.T"]
-                    us_ijT_us_ij = interm[op][orbset]["us_ij.T@us_ij"]
-                    us_iaT_us_ia = interm[op][orbset]["us_ia.T@us_ia"]
-                    us_ij_x_ia = us_ij @ x_ia
-                    x_ia_su_ab = x_ia @ su_ab
-                    x_iaT_uu_ia = x_ia.T @ uu_ia
-                    x_ia_uu_iaT = x_ia @ uu_ia.T
-                    x_ij_uu_ia = x_ij @ uu_ia
-                    x_ijT_su_ia = x_ij.T @ su_ia
+                    su_pa_su_paT = interm[op][orbset]["su_pa@su_pa.T"]
+                    us_ipT_us_ip = interm[op][orbset]["us_ip.T@us_ip"]
 
-                    hx_ij = (
-                        su_ia_su_iaT @ x_ij
-                        + x_ia_su_ab @ su_ia.T
-                        + su_ia @ us_ij_x_ia.T
-                        + ss_ij @ x_ia_uu_iaT
-                        + su_ia @ x_ab.T @ us_ia.T
-                        + ss_ia @ x_ab @ uu_ia.T
+                    hx0[incl, :] += (
+                        x_ip @ su_pa_su_paT
+                        + us_ip @ x_ap.T @ su_pa.T
+                        + uu_ia @ x_ap @ ss_pq.T
                     )
-                    hx0[incl.reshape(-1, 1), incl] += hx_ij
-                    hx_ia = (
-                        x_ij @ su_ia @ su_ab.T
-                        + us_ij.T @ x_ijT_su_ia
-                        + ss_ij.T @ x_ij_uu_ia
-                        + x_ia @ su_ab_su_abT
-                        + us_ijT_us_ij @ x_ia
-                        - us_ij_x_ia @ su_ab.T
-                        - x_ia_uu_iaT.T @ ss_ai.T
-                        - us_ij.T @ x_ia_su_ab
-                        - ss_ai.T @ x_iaT_uu_ia
-                        + us_ij.T @ us_ia @ x_ab.T
-                        + us_ia @ x_ab @ su_ab.T
-                        + uu_ia @ x_ab.T @ ss_ab.T
+                    hx0[excl, :] += (
+                        x_ap @ us_ipT_us_ip
+                        + su_pa.T @ x_ip.T @ us_ip
+                        + uu_ia.T @ x_ip @ ss_pq
                     )
-                    hx0[incl.reshape(-1, 1), excl] += hx_ia
-                    hx_ab = (
-                        us_ia.T @ x_ijT_su_ia
-                        + ss_ia.T @ x_ij_uu_ia
-                        + us_ij_x_ia.T @ us_ia
-                        + us_ia.T @ x_ia_su_ab
-                        + ss_ab.T @ x_iaT_uu_ia
-                        + us_iaT_us_ia @ x_ab
-                    )
-                    hx0[excl.reshape(-1, 1), excl] += hx_ab
 
             return DIFF * self.pack_uniq_var(hx0 - hx0.T) * 4
 
@@ -847,15 +787,12 @@ class symmetrize_all(symmetrize):
         for op in range(len(self.symm_ops)):
             for incl, excl in zip(self.incl_orbs[op], self.excl_orbs[op]):
 
-                su_ia = su[op][incl.reshape(-1, 1), excl]
                 uu_ia = uu[op][incl.reshape(-1, 1), excl]
-                us_ij = us[op][incl.reshape(-1, 1), incl]
-                su_ab = su[op][excl.reshape(-1, 1), excl]
-                us_ia = us[op][incl.reshape(-1, 1), excl]
+                su_pa = su[op][:, excl]
+                us_ip = us[op][incl, :]
 
-                g0[incl.reshape(-1, 1), incl] += su_ia @ uu_ia.T
-                g0[incl.reshape(-1, 1), excl] += us_ij.T @ uu_ia - uu_ia @ su_ab.T
-                g0[excl.reshape(-1, 1), excl] += us_ia.T @ uu_ia
+                g0[incl, :] -= uu_ia @ su_pa.T
+                g0[excl, :] -= uu_ia.T @ us_ip
 
         return DIFF * self.pack_uniq_var(g0 - g0.T) * 2
 
@@ -922,24 +859,14 @@ class symmetrize_eqv(symmetrize):
         mo_coeff_u = np.dot(self.mo_coeff, u)
 
         # generate intermediates
-        interm1: List[List[Dict[str, np.ndarray]]] = []
-        interm2: List[Dict[str, np.ndarray]] = []
+        interm: List[List[Dict[str, np.ndarray]]] = []
 
-        for incl, excl in zip(self.incl_orbs, self.excl_orbs):
-
-            n_incl = len(range(*incl.indices(norb)))
-            n_excl = len(range(*excl.indices(norb)))
-
-            interm2.append(
-                {
-                    "su_ia@su_ia.T": np.zeros((n_incl, n_incl), dtype=np.float64),
-                    "su_ab@su_ia.T": np.zeros((n_excl, n_incl), dtype=np.float64),
-                    "su_ab@su_ab.T": np.zeros((n_excl, n_excl), dtype=np.float64),
-                    "us_ij.T@us_ij": np.zeros((n_incl, n_incl), dtype=np.float64),
-                    "us_ij.T@us_ia": np.zeros((n_incl, n_excl), dtype=np.float64),
-                    "us_ia.T@us_ia": np.zeros((n_excl, n_excl), dtype=np.float64),
-                }
-            )
+        su_pa_su_paT = [
+            np.zeros((norb, norb), dtype=np.float64) for _ in range(len(self.incl_orbs))
+        ]
+        us_ipT_us_ip = [
+            np.zeros((norb, norb), dtype=np.float64) for _ in range(len(self.incl_orbs))
+        ]
 
         for op, op_mat in enumerate(self.symm_ops):
 
@@ -948,41 +875,24 @@ class symmetrize_eqv(symmetrize):
             us = mo_coeff_u.T @ op_mat @ mo_coeff_s
             su = mo_coeff_s.T @ op_mat @ mo_coeff_u
 
-            interm1.append([])
+            interm.append([])
 
             for orbset, (incl, excl) in enumerate(zip(self.incl_orbs, self.excl_orbs)):
 
-                interm1[-1].append(
+                interm[-1].append(
                     {
-                        "ss_ij": ss[incl, incl],
-                        "ss_ia": ss[incl, excl],
-                        "ss_ai": ss[excl, incl],
-                        "ss_ab": ss[excl, excl],
-                        "su_ia": su[incl, excl],
-                        "su_ab": su[excl, excl],
-                        "us_ij": us[incl, incl],
-                        "us_ia": us[incl, excl],
                         "uu_ia": uu[incl, excl],
+                        "su_pa": su[:, excl],
+                        "us_ip": us[incl, :],
+                        "ss_pq": ss,
                     }
                 )
 
-                interm2[orbset]["su_ia@su_ia.T"] += (
-                    interm1[-1][-1]["su_ia"] @ interm1[-1][-1]["su_ia"].T
+                su_pa_su_paT[orbset] += (
+                    interm[-1][-1]["su_pa"] @ interm[-1][-1]["su_pa"].T
                 )
-                interm2[orbset]["su_ab@su_ia.T"] += (
-                    interm1[-1][-1]["su_ab"] @ interm1[-1][-1]["su_ia"].T
-                )
-                interm2[orbset]["su_ab@su_ab.T"] += (
-                    interm1[-1][-1]["su_ab"] @ interm1[-1][-1]["su_ab"].T
-                )
-                interm2[orbset]["us_ij.T@us_ij"] += (
-                    interm1[-1][-1]["us_ij"].T @ interm1[-1][-1]["us_ij"]
-                )
-                interm2[orbset]["us_ij.T@us_ia"] += (
-                    interm1[-1][-1]["us_ij"].T @ interm1[-1][-1]["us_ia"]
-                )
-                interm2[orbset]["us_ia.T@us_ia"] += (
-                    interm1[-1][-1]["us_ia"].T @ interm1[-1][-1]["us_ia"]
+                us_ipT_us_ip[orbset] += (
+                    interm[-1][-1]["us_ip"].T @ interm[-1][-1]["us_ip"]
                 )
 
         # calculate gradient
@@ -991,15 +901,12 @@ class symmetrize_eqv(symmetrize):
 
             for op in range(len(self.symm_ops)):
 
-                su_ia = interm1[op][orbset]["su_ia"]
-                uu_ia = interm1[op][orbset]["uu_ia"]
-                us_ij = interm1[op][orbset]["us_ij"]
-                su_ab = interm1[op][orbset]["su_ab"]
-                us_ia = interm1[op][orbset]["us_ia"]
+                uu_ia = interm[op][orbset]["uu_ia"]
+                su_pa = interm[op][orbset]["su_pa"]
+                us_ip = interm[op][orbset]["us_ip"]
 
-                g0[incl, incl] += su_ia @ uu_ia.T
-                g0[incl, excl] += us_ij.T @ uu_ia - uu_ia @ su_ab.T
-                g0[excl, excl] += us_ia.T @ uu_ia
+                g0[incl, :] -= uu_ia @ su_pa.T
+                g0[excl, :] -= uu_ia.T @ us_ip
 
         g = self.pack_uniq_var(g0 - g0.T) * 2
 
@@ -1009,30 +916,19 @@ class symmetrize_eqv(symmetrize):
 
             for op in range(len(self.symm_ops)):
 
-                su_ia = interm1[op][orbset]["su_ia"]
-                us_ij = interm1[op][orbset]["us_ij"]
-                su_ab = interm1[op][orbset]["su_ab"]
-                uu_ia = interm1[op][orbset]["uu_ia"]
-                ss_ai = interm1[op][orbset]["ss_ai"]
-                us_ia = interm1[op][orbset]["us_ia"]
+                us_ij = interm[op][orbset]["us_ip"][:, incl]
+                su_ab = interm[op][orbset]["su_pa"][excl, :]
+                uu_ia = interm[op][orbset]["uu_ia"]
+                ss_ai = interm[op][orbset]["ss_pq"][excl, incl]
 
-                h_diag0[incl, excl] += (
-                    -np.einsum("bb,jj->jb", su_ab, us_ij)
-                    - 2 * np.einsum("jb,bj->jb", uu_ia, ss_ai)
-                    - np.einsum("jj,bb->jb", us_ij, su_ab)
+                h_diag0[incl, excl] -= (
+                    np.einsum("ii,aa->ia", us_ij, su_ab)
+                    + 2 * np.einsum("ia,ai->ia", uu_ia, ss_ai)
+                    + np.einsum("aa,ii->ia", su_ab, us_ij)
                 )
 
-            su_ia_su_iaT = interm2[orbset]["su_ia@su_ia.T"]
-            su_ab_su_abT = interm2[orbset]["su_ab@su_ab.T"]
-            us_ijT_us_ij = interm2[orbset]["us_ij.T@us_ij"]
-            us_iaT_us_ia = interm2[orbset]["us_ia.T@us_ia"]
-
-            h_diag0[incl, incl] += np.diag(su_ia_su_iaT)[:, np.newaxis]
-            h_diag0[incl, excl] += (
-                np.diag(us_ijT_us_ij)[:, np.newaxis]
-                + np.diag(su_ab_su_abT)[np.newaxis, :]
-            )
-            h_diag0[excl, excl] += np.diag(us_iaT_us_ia)[:, np.newaxis]
+            h_diag0[incl, :] += np.diag(su_pa_su_paT[orbset])[np.newaxis, :]
+            h_diag0[excl, :] += np.diag(us_ipT_us_ip[orbset])[np.newaxis, :]
 
         h_diag = self.pack_uniq_var(h_diag0 + h_diag0.T) * 2
 
@@ -1045,67 +941,21 @@ class symmetrize_eqv(symmetrize):
             hx0 = np.zeros_like(x)
             for orbset, (incl, excl) in enumerate(zip(self.incl_orbs, self.excl_orbs)):
 
-                x_ij = x[incl, incl]
-                x_ia = x[incl, excl]
-                x_ab = x[excl, excl]
+                x_ip = x[incl, :]
+                x_ap = x[excl, :]
 
                 for op in range(len(self.symm_ops)):
 
-                    su_ia = interm1[op][orbset]["su_ia"]
-                    us_ij = interm1[op][orbset]["us_ij"]
-                    ss_ij = interm1[op][orbset]["ss_ij"]
-                    uu_ia = interm1[op][orbset]["uu_ia"]
-                    us_ia = interm1[op][orbset]["us_ia"]
-                    ss_ia = interm1[op][orbset]["ss_ia"]
-                    su_ab = interm1[op][orbset]["su_ab"]
-                    ss_ai = interm1[op][orbset]["ss_ai"]
-                    ss_ab = interm1[op][orbset]["ss_ab"]
+                    su_pa = interm[op][orbset]["su_pa"]
+                    us_ip = interm[op][orbset]["us_ip"]
+                    uu_ia = interm[op][orbset]["uu_ia"]
+                    ss_pq = interm[op][orbset]["ss_pq"]
 
-                    us_ij_x_ia = us_ij @ x_ia
-                    x_ia_su_ab = x_ia @ su_ab
-                    x_iaT_uu_ia = x_ia.T @ uu_ia
-                    x_ia_uu_iaT = x_ia @ uu_ia.T
-                    x_ij_uu_ia = x_ij @ uu_ia
-                    x_ijT_su_ia = x_ij.T @ su_ia
+                    hx0[incl, :] += us_ip @ x_ap.T @ su_pa.T + uu_ia @ x_ap @ ss_pq.T
+                    hx0[excl, :] += su_pa.T @ x_ip.T @ us_ip + uu_ia.T @ x_ip @ ss_pq
 
-                    hx0[incl, incl] += (
-                        su_ia @ us_ij_x_ia.T
-                        + ss_ij @ x_ia_uu_iaT
-                        + su_ia @ x_ab.T @ us_ia.T
-                        + ss_ia @ x_ab @ uu_ia.T
-                    )
-                    hx0[incl, excl] += (
-                        us_ij.T @ x_ijT_su_ia
-                        + ss_ij.T @ x_ij_uu_ia
-                        - us_ij_x_ia @ su_ab.T
-                        - x_ia_uu_iaT.T @ ss_ai.T
-                        - us_ij.T @ x_ia_su_ab
-                        - ss_ai.T @ x_iaT_uu_ia
-                        + us_ia @ x_ab @ su_ab.T
-                        + uu_ia @ x_ab.T @ ss_ab.T
-                    )
-                    hx0[excl, excl] += (
-                        us_ia.T @ x_ijT_su_ia
-                        + ss_ia.T @ x_ij_uu_ia
-                        + us_ia.T @ x_ia_su_ab
-                        + ss_ab.T @ x_iaT_uu_ia
-                    )
-
-                su_ia_su_iaT = interm2[orbset]["su_ia@su_ia.T"]
-                su_ab_su_iaT = interm2[orbset]["su_ab@su_ia.T"]
-                su_ab_su_abT = interm2[orbset]["su_ab@su_ab.T"]
-                us_ijT_us_ij = interm2[orbset]["us_ij.T@us_ij"]
-                us_ijT_us_ia = interm2[orbset]["us_ij.T@us_ia"]
-                us_iaT_us_ia = interm2[orbset]["us_ia.T@us_ia"]
-
-                hx0[incl, incl] += su_ia_su_iaT @ x_ij + x_ia @ su_ab_su_iaT
-                hx0[incl, excl] += (
-                    x_ij @ su_ab_su_iaT.T
-                    + x_ia @ su_ab_su_abT
-                    + us_ijT_us_ij @ x_ia
-                    + us_ijT_us_ia @ x_ab.T
-                )
-                hx0[excl, excl] += x_ia.T @ us_ijT_us_ia + us_iaT_us_ia @ x_ab
+                hx0[incl, :] += x_ip @ su_pa_su_paT[orbset]
+                hx0[excl, :] += x_ap @ us_ipT_us_ip[orbset]
 
             return DIFF * self.pack_uniq_var(hx0 - hx0.T) * 4
 
@@ -1140,15 +990,12 @@ class symmetrize_eqv(symmetrize):
         for op in range(len(self.symm_ops)):
             for incl, excl in zip(self.incl_orbs, self.excl_orbs):
 
-                su_ia = su[op][incl, excl]
                 uu_ia = uu[op][incl, excl]
-                us_ij = us[op][incl, incl]
-                su_ab = su[op][excl, excl]
-                us_ia = us[op][incl, excl]
+                su_pa = su[op][:, excl]
+                us_ip = us[op][incl, :]
 
-                g0[incl, incl] += su_ia @ uu_ia.T
-                g0[incl, excl] += us_ij.T @ uu_ia - uu_ia @ su_ab.T
-                g0[excl, excl] += us_ia.T @ uu_ia
+                g0[incl, :] -= uu_ia @ su_pa.T
+                g0[excl, :] -= uu_ia.T @ us_ip
 
         return DIFF * self.pack_uniq_var(g0 - g0.T) * 2
 
@@ -1194,7 +1041,7 @@ def symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.ndarra
     coords = (symm_axes @ coords.T).T
 
     # get Wigner D matrices to rotate aos from input coordinate system to symmetry axes
-    Ds = symm.basis._ao_rotation_matrices(mol, symm_axes)
+    Ds = symm.basis._momentum_rotation_matrices(mol, symm_axes)
 
     # get different equivalent atom types
     atom_types = [

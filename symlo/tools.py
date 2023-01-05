@@ -16,7 +16,7 @@ __status__ = "Development"
 
 from math import sin, cos, pi, sqrt
 import numpy as np
-from pyscf import symm
+from pyscf import symm, lib
 from pyscf.lib.exceptions import PointGroupSymmetryError
 from typing import TYPE_CHECKING
 
@@ -437,7 +437,7 @@ def get_symm_coord(
     rawsys = symm.SymmSys(atoms, basis)
 
     # determine charge center of molecule
-    charge_center = rawsys.charge_center
+    charge_center = lib.parameters.BOHR * rawsys.charge_center
 
     # initialize boolean for correct point group
     correct_symm = False
@@ -703,8 +703,8 @@ def get_symm_coord(
     else:
 
         raise PointGroupSymmetryError(
-            "Molecule does not have supplied symmetry. Maybe try "
-            "reducing symmetry tolerance."
+            "Molecule does not have supplied symmetry. Maybe try reducing symmetry "
+            "tolerance."
         )
 
 
