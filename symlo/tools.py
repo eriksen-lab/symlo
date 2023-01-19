@@ -16,6 +16,11 @@ __status__ = "Development"
 
 import numpy as np
 import scipy as sc
+
+try:
+    from scipy.sparse import csr_array
+except ImportError:
+    from scipy.sparse import csr_matrix as csr_array
 from math import sin, cos, pi, sqrt
 from pyscf import symm, lib
 from pyscf.lib.exceptions import PointGroupSymmetryError
@@ -854,7 +859,7 @@ def get_symm_inv_blocks(
     thresh_trafo_ovlp[thresh_trafo_ovlp < thresh] = 0.0
 
     # create sparse array
-    sparse_trafo_ovlp = sc.sparse.csr_array(thresh_trafo_ovlp)
+    sparse_trafo_ovlp = csr_array(thresh_trafo_ovlp)
 
     # determine optimal ordering of orbitals
     reorder = sc.sparse.csgraph.reverse_cuthill_mckee(sparse_trafo_ovlp)
