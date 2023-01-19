@@ -14,8 +14,9 @@ __maintainer__ = "Jonas Greiner"
 __email__ = "jonas.greiner@uni-mainz.de"
 __status__ = "Development"
 
-from math import sin, cos, pi, sqrt
 import numpy as np
+import scipy as sc
+from math import sin, cos, pi, sqrt
 from pyscf import symm, lib
 from pyscf.lib.exceptions import PointGroupSymmetryError
 from typing import TYPE_CHECKING
@@ -323,8 +324,8 @@ def get_symm_op_matrices(
 
         # S6
         for coord in corners:
-            symm_ops.append(_rot_reflect_matrix(coord, pi / 6, l_max))
-            symm_ops.append(_rot_reflect_matrix(coord, 5 * pi / 6, l_max))
+            symm_ops.append(_rot_reflect_matrix(coord, pi / 3, l_max))
+            symm_ops.append(_rot_reflect_matrix(coord, 5 * pi / 3, l_max))
 
     # cubic group Td
     elif point_group == "Td":
@@ -459,16 +460,16 @@ def get_symm_coord(
 
             tot_main_rot = int(point_group[1:])
 
-            zaxis, n = rawsys.search_c_highest()
-
-            for axis in np.eye(3):
-                if not symm.parallel_vectors(axis, zaxis):
-                    symm_axes = symm.geom._make_axes(zaxis, axis)
+            possible_cn = rawsys.search_possible_rotations()
+            for zaxis, n in possible_cn:
+                if n == tot_main_rot and rawsys.has_rotation(zaxis, n):
+                    correct_symm = True
+                    for axis in np.eye(3):
+                        if not symm.parallel_vectors(axis, zaxis):
+                            symm_axes = symm.geom._make_axes(zaxis, axis)
+                            break
+                    symm_axes = symm.geom._refine(symm_axes)
                     break
-
-            if n % tot_main_rot == 0:
-                correct_symm = True
-                symm_axes = symm.geom._refine(symm_axes)
 
     # improper cyclic group Ci
     elif point_group == "Ci":
@@ -491,31 +492,31 @@ def get_symm_coord(
 
         tot_main_rot = int(point_group[1:])
 
-        zaxis, n = rawsys.search_c_highest()
-
-        for axis in np.eye(3):
-            if not symm.parallel_vectors(axis, zaxis):
-                symm_axes = symm.geom._make_axes(zaxis, axis)
-                break
-
-        if (2 * n) % tot_main_rot == 0 and rawsys.has_improper_rotation(
-            symm_axes[2], n
-        ):
-            correct_symm = True
-            symm_axes = symm.geom._refine(symm_axes)
+        possible_cn = rawsys.search_possible_rotations()
+        for zaxis, n in possible_cn:
+            if 2 * n == tot_main_rot and rawsys.has_rotation(zaxis, n):
+                for axis in np.eye(3):
+                    if not symm.parallel_vectors(axis, zaxis):
+                        symm_axes = symm.geom._make_axes(zaxis, axis)
+                        break
+                if rawsys.has_improper_rotation(symm_axes[2], n):
+                    correct_symm = True
+                    symm_axes = symm.geom._refine(symm_axes)
+                    break
 
     # dihedral groups Dn
     elif point_group[0] == "D" and point_group[1:].isnumeric():
 
         tot_main_rot = int(point_group[1:])
 
-        zaxis, n = rawsys.search_c_highest()
-
-        c2x = rawsys.search_c2x(zaxis, n)
-
-        if n % tot_main_rot == 0 and c2x is not None:
-            correct_symm = True
-            symm_axes = symm.geom._refine(symm.geom._make_axes(zaxis, c2x))
+        possible_cn = rawsys.search_possible_rotations()
+        for zaxis, n in possible_cn:
+            if n == tot_main_rot and rawsys.has_rotation(zaxis, n):
+                c2x = rawsys.search_c2x(zaxis, n)
+                if c2x is not None:
+                    correct_symm = True
+                    symm_axes = symm.geom._refine(symm.geom._make_axes(zaxis, c2x))
+                    break
 
     # Dnh
     elif point_group[0] == "D" and point_group[-1] == "h":
@@ -535,30 +536,32 @@ def get_symm_coord(
 
             tot_main_rot = int(point_group[1:-1])
 
-            zaxis, n = rawsys.search_c_highest()
-
-            c2x = rawsys.search_c2x(zaxis, n)
-
-            if n % tot_main_rot == 0 and c2x is not None:
-                symm_axes = symm.geom._make_axes(zaxis, c2x)
-                if rawsys.has_mirror(symm_axes[2]):
-                    correct_symm = True
-                    symm_axes = symm.geom._refine(symm_axes)
+            possible_cn = rawsys.search_possible_rotations()
+            for zaxis, n in possible_cn:
+                if n == tot_main_rot and rawsys.has_rotation(zaxis, n):
+                    c2x = rawsys.search_c2x(zaxis, n)
+                    if c2x is not None:
+                        symm_axes = symm.geom._make_axes(zaxis, c2x)
+                        if rawsys.has_mirror(symm_axes[2]):
+                            correct_symm = True
+                            symm_axes = symm.geom._refine(symm_axes)
+                            break
 
     # Dnd
     elif point_group[0] == "D" and point_group[-1] == "d":
 
         tot_main_rot = int(point_group[1:-1])
 
-        zaxis, n = rawsys.search_c_highest()
-
-        c2x = rawsys.search_c2x(zaxis, n)
-
-        if n % tot_main_rot == 0 and c2x is not None:
-            symm_axes = symm.geom._make_axes(zaxis, c2x)
-            if rawsys.has_improper_rotation(symm_axes[2], n):
-                correct_symm = True
-                symm_axes = symm.geom._refine(symm_axes)
+        possible_cn = rawsys.search_possible_rotations()
+        for zaxis, n in possible_cn:
+            if n == tot_main_rot and rawsys.has_rotation(zaxis, n):
+                c2x = rawsys.search_c2x(zaxis, n)
+                if c2x is not None:
+                    symm_axes = symm.geom._make_axes(zaxis, c2x)
+                    if rawsys.has_improper_rotation(symm_axes[2], n):
+                        correct_symm = True
+                        symm_axes = symm.geom._refine(symm_axes)
+                        break
 
     # Cnv
     elif point_group[0] == "C" and point_group[-1] == "v":
@@ -575,29 +578,33 @@ def get_symm_coord(
 
             tot_main_rot = int(point_group[1:-1])
 
-        zaxis, n = rawsys.search_c_highest()
-
-        mirrorx = rawsys.search_mirrorx(zaxis, n)
-
-        if n % tot_main_rot == 0 and mirrorx is not None:
-            correct_symm = True
-            symm_axes = symm.geom._refine(symm.geom._make_axes(zaxis, mirrorx))
+            possible_cn = rawsys.search_possible_rotations()
+            for zaxis, n in possible_cn:
+                if n == tot_main_rot and rawsys.has_rotation(zaxis, n):
+                    mirrorx = rawsys.search_mirrorx(zaxis, n)
+                    if mirrorx is not None:
+                        correct_symm = True
+                        symm_axes = symm.geom._refine(
+                            symm.geom._make_axes(zaxis, mirrorx)
+                        )
+                        break
 
     # Cnh
     elif point_group[0] == "C" and point_group[-1] == "h":
 
         tot_main_rot = int(point_group[1:-1])
 
-        zaxis, n = rawsys.search_c_highest()
-
-        for axis in np.eye(3):
-            if not symm.parallel_vectors(axis, zaxis):
-                symm_axes = symm.geom._make_axes(zaxis, axis)
-                break
-
-        if n % tot_main_rot == 0 and rawsys.has_mirror(symm_axes[2]):
-            correct_symm = True
-            symm_axes = symm.geom._refine(symm_axes)
+        possible_cn = rawsys.search_possible_rotations()
+        for zaxis, n in possible_cn:
+            if n == tot_main_rot and rawsys.has_rotation(zaxis, n):
+                for axis in np.eye(3):
+                    if not symm.parallel_vectors(axis, zaxis):
+                        symm_axes = symm.geom._make_axes(zaxis, axis)
+                        break
+                if rawsys.has_mirror(symm_axes[2]):
+                    correct_symm = True
+                    symm_axes = symm.geom._refine(symm_axes)
+                    break
 
     # cubic group O
     elif point_group == "O":
@@ -706,6 +713,191 @@ def get_symm_coord(
             "Molecule does not have supplied symmetry. Maybe try reducing symmetry "
             "tolerance."
         )
+
+
+def ao_trafo_mat(
+    cart_mat: np.ndarray,
+    nao: int,
+    ao_loc: np.ndarray,
+    l_shell: List[int],
+    nctr_shell: List[int],
+) -> np.ndarray:
+    """
+    this function generates an AO transformation matrix for arbitrary transformations
+    """
+    # get euler angles
+    alpha, beta, gamma = symm.Dmatrix.get_euler_angles(np.eye(3), cart_mat)
+
+    # generate transformation matrices for spherical harmonics
+    sph_mats = [
+        symm.Dmatrix.Dmatrix(l, alpha, beta, gamma, reorder_p=True)
+        for l in range(max(l_shell) + 1)
+    ]
+
+    # initialize transformation matrix
+    trafo_ao = np.zeros((nao, nao), dtype=np.float64)
+
+    # loop over shells
+    for shell, l in enumerate(l_shell):
+
+        # loop over contracted basis functions in shell
+        for bf in range(nctr_shell[shell]):
+
+            # get ao index range for contracted basis function
+            ao_start = ao_loc[shell] + bf * sph_mats[l].shape[1]
+            ao_stop = ao_start + sph_mats[l].shape[1]
+
+            # insert transformation matrix
+            trafo_ao[ao_start:ao_stop, ao_start:ao_stop] = sph_mats[l]
+
+    return trafo_ao
+
+
+def get_mo_trafos(
+    symm_trafo_ovlp: np.ndarray, tot_len: int, symm_tol: float
+) -> List[Tuple[Tuple[int, ...], Tuple[int, ...]]]:
+    """
+    this function generates a list of symmetry-invariant and symmetry-equivalent MOs
+    for a given overlap matrix
+    """
+    # intitialize list of symmetry equivalent orbitals
+    symm_eqv_mos: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = []
+
+    # get absolute of transformed orbital overlap
+    symm_trafo_ovlp = np.abs(symm_trafo_ovlp)
+
+    # initialize list that gathers important orbital contributions to transformed
+    # orbital
+    orb_contrib: List[Tuple[int, List[int]]] = []
+
+    # calculate threshold up to which orbital contributions are considered
+    thresh = symm_tol * np.max(symm_trafo_ovlp, axis=1)
+
+    # get elements of with significant overlap
+    signif_ovlp = symm_trafo_ovlp > thresh
+
+    # loop over orbitals
+    for orb in range(tot_len):
+
+        # add empty list for current orbital
+        orb_contrib.append((orb, signif_ovlp[orb].nonzero()[0].tolist()))
+
+    # loop over orbitals until none are left
+    while len(orb_contrib) > 0:
+
+        # add current orbital to first tuple
+        tup1 = [orb_contrib[0][0]]
+
+        # add all orbitals that the current orbital transforms into to second tuple
+        tup2 = set(orb_contrib[0][1])
+
+        # delete current orbital
+        del orb_contrib[0]
+
+        # set orbital counter
+        orb = 0
+
+        # loop until all remaining orbitals are considered
+        while orb < len(orb_contrib):
+
+            # check if any orbital this orbital transforms into coincides with any
+            # orbital in second tuple
+            if not tup2.isdisjoint(orb_contrib[orb][1]):
+
+                # add this orbital to first tuple
+                tup1.append(orb_contrib[orb][0])
+
+                # add orbital this orbital transforms into to second tuple
+                tup2.update(orb_contrib[orb][1])
+
+                # delete this orbital
+                orb_contrib.remove(orb_contrib[orb])
+
+                # reset orbital counter
+                orb = 0
+
+            else:
+
+                # increment orbital counter
+                orb += 1
+
+        # check if every set of orbitals transforms into another set of orbitals of the
+        # same size
+        if len(tup1) == len(tup2):
+
+            # add set of orbitals
+            symm_eqv_mos.append((tuple(tup1), tuple(tup2)))
+
+        else:
+
+            raise RuntimeError(
+                "An error occured when trying to detect orbital symmetry."
+            )
+
+    return symm_eqv_mos
+
+
+def get_symm_inv_blocks(
+    all_symm_trafo_ovlp: np.ndarray, thresh_perc: float
+) -> Tuple[List[List[int]], np.ndarray]:
+    """
+    this function finds blocks that are invariant with respect to all symmetry
+    operations
+    """
+    # set threshold for sparse array
+    thresh = thresh_perc * np.max(all_symm_trafo_ovlp, axis=0)
+
+    # copy array
+    thresh_trafo_ovlp = all_symm_trafo_ovlp.copy()
+
+    # set elements below threshold to zero
+    thresh_trafo_ovlp[thresh_trafo_ovlp < thresh] = 0.0
+
+    # create sparse array
+    sparse_trafo_ovlp = sc.sparse.csr_array(thresh_trafo_ovlp)
+
+    # determine optimal ordering of orbitals
+    reorder = sc.sparse.csgraph.reverse_cuthill_mckee(sparse_trafo_ovlp)
+
+    # reorder array
+    thresh_trafo_ovlp = thresh_trafo_ovlp[reorder.reshape(-1, 1), reorder]
+
+    # initialize list for mo blocks that are approximately invariant with respect to
+    # all symmetry operations and add first block
+    symm_inv_blocks: List[List[int]] = [[0]]
+
+    # initialize row counter
+    start = 1
+
+    # perform until all orbitals are considered
+    while True:
+
+        # loop over mos
+        for mo in range(start, all_symm_trafo_ovlp.shape[0]):
+
+            # check if mos overlaps with last block
+            if thresh_trafo_ovlp[mo, symm_inv_blocks[-1]].any():
+
+                # add mo
+                symm_inv_blocks[-1].append(mo)
+
+            else:
+
+                # create new block
+                symm_inv_blocks.append([mo])
+
+                # start at next mo
+                start = mo + 1
+
+                # block is finished
+                break
+
+        else:
+
+            # all orbitals finished
+            break
+
+    return symm_inv_blocks, reorder
 
 
 def _cubic_coords() -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:

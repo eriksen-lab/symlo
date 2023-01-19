@@ -15,33 +15,50 @@ __email__ = "jonas.greiner@uni-mainz.de"
 __status__ = "Development"
 
 import numpy as np
-import scipy as sc
 from pyscf import gto, symm, lo, soscf
 from pyscf.lib.exceptions import PointGroupSymmetryError
 from pyscf.lib import logger
-from itertools import combinations
 from typing import TYPE_CHECKING
 
-from symlo.tools import get_symm_op_matrices, get_symm_coord
+from symlo.tools import (
+    get_symm_op_matrices,
+    get_symm_coord,
+    get_mo_trafos,
+    get_symm_inv_blocks,
+)
 
 if TYPE_CHECKING:
 
-    from typing import Tuple, Dict, List, Optional, Callable, Union
+    from typing import Tuple, Dict, List, Optional, Callable, Union, Set
 
 
 COORD_TOL = 1.0e-14
-MO_SYMM_TOL = 1.0e-2
-SYMM_TOL = 1e-12
-DIFF = 1 / np.sqrt(1e-14)
+MAX_CONV = 1 / np.sqrt(1e-14)
 
 
 def symm_eqv_mo(
-    mol: gto.Mole, mo_coeff: np.ndarray, point_group: str, ncore: int
-) -> Tuple[np.ndarray, np.ndarray]:
+    mol: gto.Mole,
+    mo_coeff: np.ndarray,
+    point_group: str,
+    ncore: int,
+    verbose: Optional[int] = None,
+    max_cycle: int = 100,
+    conv_tol: float = 1e-13,
+    inv_block_thresh: float = 0.3,
+    symm_eqv_thresh: float = 0.3,
+    heatmap: bool = False,
+) -> Tuple[List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]], np.ndarray]:
     """
     returns an array of permutations of symmetry equivalent orbitals for each
     symmetry operation
     """
+    # set verbosity if it is not set
+    if verbose is None:
+        verbose = mol.verbose
+
+    # initialize logger
+    log = logger.new_logger(verbose=verbose)
+
     # convert point group to standard symbol
     point_group = symm.std_symb(point_group)
 
@@ -51,174 +68,66 @@ def symm_eqv_mo(
     # get number of occupied orbitals
     nocc = max(mol.nelec)
 
-    # get number of virtual orbitals
-    nvirt = norb - nocc
-
     # get ao overlap matrix
     sao = gto.intor_cross("int1e_ovlp", mol, mol)
 
     # orthogonalize mo coefficients
     mo_coeff = lo.orth.vec_lowdin(mo_coeff, sao)
 
-    # get symmetry transformation matrix in orthogonal ao basis
-    trafo_ao = symm_trafo_ao(mol, point_group, sao)
+    # get symmetry transformation matrices in orthogonal ao basis
+    trafo_ao = get_symm_trafo_ao(mol, point_group, sao)
 
     # get total number of symmetry operations
     nop = trafo_ao.shape[0]
 
-    # initialize array of equivalent mos
-    symm_eqv_mos = np.empty((nop, mo_coeff.shape[0]), dtype=np.int64)
+    # transform mo coefficients
+    op_mo_coeff = trafo_ao @ mo_coeff
 
-    # initialize overlap matrices between mos and transformed mos for all symmetry
-    # operations (the individual matrices for each symmetry operation are not symmetric
-    # because symmetry operations are not necessarily unitary but their sum is because
-    # a group includes an inverse element for every symmetry operation)
-    all_symm_trafo_occ_ovlp = np.zeros((nocc - ncore, nocc - ncore))
-    all_symm_trafo_virt_ovlp = np.zeros((nvirt, nvirt))
+    # get overlap between mos and transformed mos
+    trafo_occ_ovlp = np.einsum(
+        "ij,nik->njk", mo_coeff[:, ncore:nocc], op_mo_coeff[:, :, ncore:nocc]
+    )
+    trafo_virt_ovlp = np.einsum(
+        "ij,nik->njk", mo_coeff[:, nocc:], op_mo_coeff[:, :, nocc:]
+    )
 
-    # loop over symmetry operations
-    for op in trafo_ao:
+    # get sum of overlap for all symmetry operations and normalize (the individual
+    # matrices for each symmetry operation are not symmetric because symmetry
+    # operations are not necessarily unitary but their sum is because a group includes
+    # an inverse element for every symmetry operation)
+    all_symm_trafo_occ_ovlp = np.sum(np.abs(trafo_occ_ovlp), axis=0) / nop
+    all_symm_trafo_virt_ovlp = np.sum(np.abs(trafo_virt_ovlp), axis=0) / nop
 
-        # transform mos
-        op_mo_coeff = op @ mo_coeff
+    # get blocks that are invariant with respect to all symmetry operations
+    tot_symm_occ_blocks, reorder_occ = get_symm_inv_blocks(
+        all_symm_trafo_occ_ovlp, inv_block_thresh
+    )
 
-        # add overlap for symmetry operation
-        all_symm_trafo_occ_ovlp += np.abs(
-            mo_coeff[:, ncore:nocc].T @ op_mo_coeff[:, ncore:nocc]
+    # get blocks that are invariant with respect to all symmetry operations
+    tot_symm_virt_blocks, reorder_virt = get_symm_inv_blocks(
+        all_symm_trafo_virt_ovlp, inv_block_thresh
+    )
+
+    # log data
+    log.info("Symmetry-invariant occupied orbital blocks:")
+    log.info(
+        "\n".join(
+            [str([ncore + orb for orb in block]) for block in tot_symm_occ_blocks]
         )
-        all_symm_trafo_virt_ovlp += np.abs(mo_coeff[:, nocc:].T @ op_mo_coeff[:, nocc:])
-
-    # normalize overlap matrix
-    all_symm_trafo_occ_ovlp /= nop
-    all_symm_trafo_virt_ovlp /= nop
-
-    # set threshold for sparse array
-    thresh = 0.5 * np.max(all_symm_trafo_occ_ovlp, axis=0)
-
-    # copy array
-    thresh_trafo_occ = all_symm_trafo_occ_ovlp.copy()
-
-    # set elements below threshold to zero
-    thresh_trafo_occ[thresh_trafo_occ < thresh] = 0.0
-
-    # create sparse array
-    sparse_trafo_occ = sc.sparse.csr_array(thresh_trafo_occ)
-
-    # determine optimal ordering of orbitals
-    reorder_occ = sc.sparse.csgraph.reverse_cuthill_mckee(sparse_trafo_occ)
-
-    np.save("occ_overlap_before.npy", all_symm_trafo_occ_ovlp)
-    np.save(
-        "occ_overlap_sorted.npy",
-        all_symm_trafo_occ_ovlp[reorder_occ.reshape(-1, 1), reorder_occ],
     )
-
-    # reorder array
-    thresh_trafo_occ = thresh_trafo_occ[reorder_occ.reshape(-1, 1), reorder_occ]
-
-    # initialize list for mo blocks that are approximately invariant with respect to
-    # all symmetry operations and add first block
-    tot_symm_occ_blocks: List[List[int]] = [[0]]
-
-    # initialize row counter
-    start = 1
-
-    # perform until all orbitals are considered
-    while True:
-
-        # loop over mos
-        for mo in range(start, nocc - ncore):
-
-            # check if mos overlaps with last block
-            if thresh_trafo_occ[mo, tot_symm_occ_blocks[-1]].any():
-
-                # add mo
-                tot_symm_occ_blocks[-1].append(mo)
-
-            else:
-
-                # create new block
-                tot_symm_occ_blocks.append([mo])
-
-                # start at next mo
-                start = mo + 1
-
-                # block is finished
-                break
-
-        else:
-
-            # all orbitals finished
-            break
-
-    # set threshold for sparse array
-    thresh = 0.5 * np.max(all_symm_trafo_virt_ovlp, axis=0)
-
-    # copy array
-    thresh_trafo_virt = all_symm_trafo_virt_ovlp.copy()
-
-    # set elements below threshold to zero
-    thresh_trafo_virt[thresh_trafo_virt < thresh] = 0.0
-
-    # create sparse array
-    sparse_trafo_virt = sc.sparse.csr_array(thresh_trafo_virt)
-
-    # determine optimal ordering of orbitals
-    reorder_virt = sc.sparse.csgraph.reverse_cuthill_mckee(sparse_trafo_virt)
-
-    np.save("virt_overlap_before.npy", all_symm_trafo_virt_ovlp)
-    np.save(
-        "virt_overlap_sorted.npy",
-        all_symm_trafo_virt_ovlp[reorder_virt.reshape(-1, 1), reorder_virt],
+    log.info("Symmetry-invariant virtual orbital blocks:")
+    log.info(
+        "\n".join(
+            [str([nocc + orb for orb in block]) for block in tot_symm_virt_blocks]
+        )
     )
-
-    # reorder array
-    thresh_trafo_virt = thresh_trafo_virt[reorder_virt.reshape(-1, 1), reorder_virt]
-
-    # initialize list for mo blocks that are approximately invariant with respect to
-    # all symmetry operations and add first block
-    tot_symm_virt_blocks: List[List[int]] = [[0]]
-
-    # initialize starting mo
-    start = 1
-
-    # perform until all orbitals are considered
-    while True:
-
-        # loop over mos
-        for mo in range(start, nvirt):
-
-            # check if mos overlaps with last block
-            if thresh_trafo_virt[mo, tot_symm_virt_blocks[-1]].any():
-
-                # add mo
-                tot_symm_virt_blocks[-1].append(mo)
-
-            else:
-
-                # create new block
-                tot_symm_virt_blocks.append([mo])
-
-                # start at next mo
-                start = mo + 1
-
-                # block is finished
-                break
-
-        else:
-
-            # all orbitals finished
-            break
-
-    print(tot_symm_occ_blocks)
-    print(tot_symm_virt_blocks)
 
     # reorder mo coefficients
     mo_coeff[:, ncore:nocc] = mo_coeff[:, ncore + reorder_occ]
     mo_coeff[:, nocc:] = mo_coeff[:, nocc + reorder_virt]
 
     # symmetrize mos
-    mo_coeff = symmetrize_mos(
+    symm_eqv_mos, mo_coeff = symmetrize_mos(
         mol,
         mo_coeff,
         nop,
@@ -227,33 +136,69 @@ def symm_eqv_mo(
         trafo_ao,
         ncore,
         nocc,
+        verbose,
+        max_cycle,
+        conv_tol,
+        symm_eqv_thresh,
     )
 
-    # initialize overlap matrices between mos and transformed mos for all symmetry
-    # operations (the individual matrices for each symmetry operation are not symmetric
-    # because symmetry operations are not necessarily unitary but their sum is because
-    # a group includes an inverse element for every symmetry operation)
-    all_symm_trafo_occ_ovlp = np.zeros((nocc - ncore, nocc - ncore))
-    all_symm_trafo_virt_ovlp = np.zeros((nvirt, nvirt))
+    # check if input files for heatmap should be printed
+    if heatmap:
 
-    # loop over symmetry operations
-    for op in trafo_ao:
+        # reorder overlap matrix
+        sort_all_symm_occ_ovlp = all_symm_trafo_occ_ovlp[
+            reorder_occ.reshape(-1, 1), reorder_occ
+        ]
+        sort_all_symm_virt_ovlp = all_symm_trafo_virt_ovlp[
+            reorder_virt.reshape(-1, 1), reorder_virt
+        ]
 
-        # transform mos
-        op_mo_coeff = op @ mo_coeff
+        # transform mo coefficients
+        op_mo_coeff = trafo_ao @ mo_coeff
 
-        # add overlap for symmetry operation
-        all_symm_trafo_occ_ovlp += np.abs(
-            mo_coeff[:, ncore:nocc].T @ op_mo_coeff[:, ncore:nocc]
+        # get overlap between mos and transformed mos
+        new_occ_ovlp = np.einsum(
+            "ij,nik->njk", mo_coeff[:, ncore:nocc], op_mo_coeff[:, :, ncore:nocc]
         )
-        all_symm_trafo_virt_ovlp += np.abs(mo_coeff[:, nocc:].T @ op_mo_coeff[:, nocc:])
+        new_virt_ovlp = np.einsum(
+            "ij,nik->njk", mo_coeff[:, nocc:], op_mo_coeff[:, :, nocc:]
+        )
 
-    # normalize overlap matrix
-    all_symm_trafo_occ_ovlp /= nop
-    all_symm_trafo_virt_ovlp /= nop
+        # get sum of overlap for all symmetry operations and normalize
+        new_all_symm_occ_ovlp = np.sum(np.abs(new_occ_ovlp), axis=0) / nop
+        new_all_symm_virt_ovlp = np.sum(np.abs(new_virt_ovlp), axis=0) / nop
 
-    np.save("occ_overlap_after.npy", all_symm_trafo_occ_ovlp)
-    np.save("virt_overlap_after.npy", all_symm_trafo_virt_ovlp)
+        np.save("occ_overlap_before.npy", all_symm_trafo_occ_ovlp)
+        np.save("virt_overlap_before.npy", all_symm_trafo_virt_ovlp)
+
+        np.save("occ_overlap_sorted.npy", sort_all_symm_occ_ovlp)
+        np.save("virt_overlap_sorted.npy", sort_all_symm_virt_ovlp)
+
+        np.save("occ_overlap_after.npy", new_all_symm_occ_ovlp)
+        np.save("virt_overlap_after.npy", new_all_symm_virt_ovlp)
+
+    all_symm_eqv_mos: List[Set[int]] = [set() for _ in range(norb)]
+
+    # loop over symmetry operation
+    for op_eqv_mos in symm_eqv_mos:
+
+        # loop over orbital tuple
+        for tup in op_eqv_mos:
+
+            # check if single orbital transforms into other single orbital
+            if len(tup[0]) == 1:
+
+                # add to set of symmetry-equivalent orbitals
+                all_symm_eqv_mos[tup[0][0]].add(tup[1][0])
+
+    # get all unique combinations of symmetry-equivalent orbitals
+    symm_unique_mos = set([tuple(sorted(list(orbset))) for orbset in all_symm_eqv_mos])
+
+    # get number of symmetry-unique mos
+    nunique = len(symm_unique_mos)
+
+    log.info(f"Total number of orbitals: {norb}")
+    log.info(f"Number of symmetry-unique orbitals: {nunique}")
 
     return symm_eqv_mos, mo_coeff
 
@@ -267,23 +212,35 @@ def symmetrize_mos(
     trafo_ao: np.ndarray,
     ncore: int,
     nocc: int,
-) -> np.ndarray:
+    verbose: int,
+    max_cycle: int,
+    conv_tol: float,
+    symm_eqv_thresh: float,
+) -> Tuple[List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]], np.ndarray]:
     """
     this function symmetrizes localized orbitals
     """
+    symm_eqv_mos: List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]] = [
+        [] for op in range(nop)
+    ]
+
     # occupied - occupied block
-    loc = symmetrize_eqv(
+    symm_inv = symmetrize_eqv(
         mol, trafo_ao, tot_symm_occ_blocks, mo_coeff[:, ncore : min(mol.nelec)]
     )
-    loc.verbose = 4
-    mo_coeff[:, ncore : min(mol.nelec)] = loc.kernel()
+    symm_inv.max_cycle = max_cycle
+    symm_inv.verbose = verbose
+    symm_inv.conv_tol = conv_tol
+    mo_coeff[:, ncore : min(mol.nelec)], _ = symm_inv.kernel()
 
     # virtual - virtual block
-    loc = symmetrize_eqv(
+    symm_inv = symmetrize_eqv(
         mol, trafo_ao, tot_symm_virt_blocks, mo_coeff[:, max(mol.nelec) :]
     )
-    loc.verbose = 4
-    mo_coeff[:, max(mol.nelec) :] = loc.kernel()
+    symm_inv.max_cycle = max_cycle
+    symm_inv.verbose = verbose
+    symm_inv.conv_tol = conv_tol
+    mo_coeff[:, max(mol.nelec) :], _ = symm_inv.kernel()
 
     symm_eqv_occ_mo: List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]]
     symm_eqv_virt_mo: List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]]
@@ -293,164 +250,80 @@ def symmetrize_mos(
 
         symm_eqv_occ_mo = []
 
+        # get mo coefficients for block
+        block_mo_coeff = mo_coeff[:, ncore + np.array(block)]
+
         # loop over symmetry operations
         for op in range(nop):
-
-            # get mo coefficients for block
-            block_mo_coeff = mo_coeff[:, ncore + np.array(block)]
 
             # transform mos
             op_block_mo_coeff = trafo_ao[op] @ block_mo_coeff
 
-            # get unitary transformation
-            symm_trafo = block_mo_coeff.T @ op_block_mo_coeff
+            # get overlap between mos and transformed mos
+            symm_trafo_ovlp = block_mo_coeff.T @ op_block_mo_coeff
 
-            # init list of symmetry equivalent mos for this symmetry operation
-            symm_eqv_occ_mo.append([])
+            # get list of symmetry equivalent mos for this symmetry operation
+            symm_eqv_occ_mo.append(
+                get_mo_trafos(symm_trafo_ovlp, len(block), symm_eqv_thresh)
+            )
 
-            # lists of orbitals
-            orbs = np.arange(len(block))
-            trafo_orbs = np.arange(len(block))
-
-            # init combination length
-            comb_length = 1
-
-            # loop over combinations of different length
-            while comb_length <= len(block):
-
-                # create identity matrix
-                eye = np.eye(comb_length)
-
-                # loop over combinations
-                for comb1 in combinations(orbs, comb_length):
-
-                    if any([orb not in orbs for orb in comb1]):
-                        continue
-
-                    orbs1 = np.array(comb1)
-
-                    # loop over combinations
-                    for comb2 in combinations(trafo_orbs, comb_length):
-
-                        orbs2 = np.array(comb2)
-
-                        # get transformation matrix between orbitals in orbitals in first
-                        # and second combination
-                        orb_trafo = symm_trafo[orbs1.reshape(-1, 1), orbs2]
-
-                        # quantify deviation from symmetry by comparing to unitary matrix
-                        deviation = (
-                            np.linalg.norm(orb_trafo.T @ orb_trafo - eye)
-                            / comb_length**2
-                        )
-
-                        # check if block vanishes
-                        if deviation < MO_SYMM_TOL or comb_length == len(orbs):
-
-                            # sets of orbitals are symmetry equivalent
-                            symm_eqv_occ_mo[-1].append((comb1, comb2))
-
-                            # remove orbitals
-                            orbs = np.setdiff1d(orbs, comb1)
-                            trafo_orbs = np.setdiff1d(trafo_orbs, comb2)
-
-                            break
-
-                # increment combination length
-                comb_length += 1
-
-            if orbs:
-
-                symm_eqv_occ_mo[-1].append((tuple(orbs), tuple(trafo_orbs)))
+            # add equivalent orbitals
+            shifted_symm_mo = [
+                (
+                    tuple(block[orb] for orb in orb_comb[0]),
+                    tuple(block[orb] for orb in orb_comb[1]),
+                )
+                for orb_comb in symm_eqv_occ_mo[-1]
+            ]
+            symm_eqv_mos[op].extend(shifted_symm_mo)
 
         # occupied - occupied block
-        loc = symmetrize_all(mol, trafo_ao, symm_eqv_occ_mo, block_mo_coeff)
-        loc.conv_tol = 1e1 * SYMM_TOL
-        loc.verbose = 4
-        block_mo_coeff = loc.kernel()
+        symm_block = symmetrize_all(mol, trafo_ao, symm_eqv_occ_mo, block_mo_coeff)
+        symm_block.verbose = verbose
+        symm_block.max_cycle = max_cycle
+        symm_block.conv_tol = 1e1 * conv_tol
+        block_mo_coeff, _ = symm_block.kernel()
 
     # loop over symmetry-invariant blocks
     for block in tot_symm_virt_blocks:
 
         symm_eqv_virt_mo = []
 
+        # get mo coefficients for block
+        block_mo_coeff = mo_coeff[:, nocc + np.array(block)]
+
         # loop over symmetry operations
         for op in range(nop):
-
-            # get mo coefficients for block
-            block_mo_coeff = mo_coeff[:, nocc + np.array(block)]
 
             # transform mos
             op_block_mo_coeff = trafo_ao[op] @ block_mo_coeff
 
-            # get unitary transformation
-            symm_trafo = block_mo_coeff.T @ op_block_mo_coeff
+            # get overlap of mos and transformed mos
+            symm_trafo_ovlp = block_mo_coeff.T @ op_block_mo_coeff
 
-            # init list of symmetry equivalent mos for this symmetry operation
-            symm_eqv_virt_mo.append([])
+            # get list of symmetry equivalent mos for this symmetry operation
+            symm_eqv_virt_mo.append(
+                get_mo_trafos(symm_trafo_ovlp, len(block), symm_eqv_thresh)
+            )
 
-            # lists of orbitals
-            orbs = np.arange(len(block))
-            trafo_orbs = np.arange(len(block))
-
-            # init combination length
-            comb_length = 1
-
-            # loop over combinations of different length
-            while comb_length <= len(block):
-
-                # create identity matrix
-                eye = np.eye(comb_length)
-
-                # loop over combinations
-                for comb1 in combinations(orbs, comb_length):
-
-                    if any([orb not in orbs for orb in comb1]):
-                        continue
-
-                    orbs1 = np.array(comb1)
-
-                    # loop over combinations
-                    for comb2 in combinations(trafo_orbs, comb_length):
-
-                        orbs2 = np.array(comb2)
-
-                        # get transformation matrix between orbitals in orbitals in first
-                        # and second combination
-                        orb_trafo = symm_trafo[orbs1.reshape(-1, 1), orbs2]
-
-                        # quantify deviation from symmetry by comparing to unitary matrix
-                        deviation = (
-                            np.linalg.norm(orb_trafo.T @ orb_trafo - eye)
-                            / comb_length**2
-                        )
-
-                        # check if block vanishes
-                        if deviation < MO_SYMM_TOL or comb_length == len(orbs):
-
-                            # sets of orbitals are symmetry equivalent
-                            symm_eqv_virt_mo[-1].append((comb1, comb2))
-
-                            # remove orbitals
-                            orbs = np.setdiff1d(orbs, comb1)
-                            trafo_orbs = np.setdiff1d(trafo_orbs, comb2)
-
-                            break
-
-                # increment combination length
-                comb_length += 1
-
-            if orbs:
-
-                symm_eqv_virt_mo[-1].append((tuple(orbs), tuple(trafo_orbs)))
+            # add equivalent orbitals
+            shifted_symm_mo = [
+                (
+                    tuple(nocc + block[orb] for orb in orb_comb[0]),
+                    tuple(nocc + block[orb] for orb in orb_comb[1]),
+                )
+                for orb_comb in symm_eqv_virt_mo[-1]
+            ]
+            symm_eqv_mos[op].extend(shifted_symm_mo)
 
         # virtual - virtual block
-        loc = symmetrize_all(mol, trafo_ao, symm_eqv_virt_mo, block_mo_coeff)
-        loc.conv_tol = 1e1 * SYMM_TOL
-        loc.verbose = 4
-        block_mo_coeff = loc.kernel()
+        symm_block = symmetrize_all(mol, trafo_ao, symm_eqv_virt_mo, block_mo_coeff)
+        symm_block.verbose = verbose
+        symm_block.max_cycle = max_cycle
+        symm_block.conv_tol = 1e1 * conv_tol
+        block_mo_coeff, _ = symm_block.kernel()
 
-    return mo_coeff
+    return symm_eqv_mos, mo_coeff
 
 
 class symmetrize(soscf.ciah.CIAHOptimizer):
@@ -467,7 +340,7 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
         max_memory : float or int
             Allowed memory in MB. Default value equals to :class:`Mole.max_memory`.
         conv_tol : float
-            Converge threshold. Default SYMM_TOL
+            Converge threshold. Default 1e-13
         max_cycle : int
             The max. number of macro iterations. Default 100
         max_iters : int
@@ -483,14 +356,14 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
 
     """
 
-    conv_tol = SYMM_TOL
+    conv_tol = 1e-13
     max_cycle = 100
     max_iters = 20
     max_stepsize = 0.05
     ah_trust_region = 3
     ah_start_tol = 1e9
     ah_max_cycle = 40
-    ah_lindep = 1e-200
+    ah_lindep = 1e-300
 
     def __init__(
         self,
@@ -522,47 +395,48 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
         )
         self._keys = set(self.__dict__.keys()).union(keys)
         self.symm_ops = symm_ops
+        self.log = logger.new_logger(self, verbose=self.verbose)
 
     def dump_flags(self, verbose: Optional[int] = None):
-        log = logger.new_logger(self, verbose)
-        log.info("\n")
-        log.info("******** %s ********", self.__class__)
-        log.info("conv_tol = %s", self.conv_tol)
-        log.info("max_cycle = %s", self.max_cycle)
-        log.info("max_stepsize = %s", self.max_stepsize)
-        log.info("max_iters = %s", self.max_iters)
-        log.info("kf_interval = %s", self.kf_interval)
-        log.info("kf_trust_region = %s", self.kf_trust_region)
-        log.info("ah_start_tol = %s", self.ah_start_tol)
-        log.info("ah_start_cycle = %s", self.ah_start_cycle)
-        log.info("ah_level_shift = %s", self.ah_level_shift)
-        log.info("ah_conv_tol = %s", self.ah_conv_tol)
-        log.info("ah_lindep = %s", self.ah_lindep)
-        log.info("ah_max_cycle = %s", self.ah_max_cycle)
-        log.info("ah_trust_region = %s", self.ah_trust_region)
+        self.log.info("\n")
+        self.log.info("******** %s ********", self.__class__)
+        self.log.info("conv_tol = %s", self.conv_tol)
+        self.log.info("max_cycle = %s", self.max_cycle)
+        self.log.info("max_stepsize = %s", self.max_stepsize)
+        self.log.info("max_iters = %s", self.max_iters)
+        self.log.info("kf_interval = %s", self.kf_interval)
+        self.log.info("kf_trust_region = %s", self.kf_trust_region)
+        self.log.info("ah_start_tol = %s", self.ah_start_tol)
+        self.log.info("ah_start_cycle = %s", self.ah_start_cycle)
+        self.log.info("ah_level_shift = %s", self.ah_level_shift)
+        self.log.info("ah_conv_tol = %s", self.ah_conv_tol)
+        self.log.info("ah_lindep = %s", self.ah_lindep)
+        self.log.info("ah_max_cycle = %s", self.ah_max_cycle)
+        self.log.info("ah_trust_region = %s", self.ah_trust_region)
 
     def kernel(
         self, callback: Optional[Callable] = None, verbose: Optional[int] = None
-    ):
+    ) -> Tuple[np.ndarray, bool]:
         from pyscf.tools import mo_mapping
 
         if self.mo_coeff.shape[1] <= 1:
-            return self.mo_coeff
+            return self.mo_coeff, True
+
+        self.log.verbose = self.verbose
 
         if self.verbose >= logger.WARN:
             self.check_sanity()
         self.dump_flags()
 
         cput0 = (logger.process_clock(), logger.perf_counter())
-        log = logger.new_logger(self, verbose=verbose)
 
         conv_tol_grad = np.sqrt(self.conv_tol * 0.1)
 
         u0 = np.eye(self.mo_coeff.shape[1])
 
-        rotaiter = soscf.ciah.rotate_orb_cc(self, u0, conv_tol_grad, verbose=log)
+        rotaiter = soscf.ciah.rotate_orb_cc(self, u0, conv_tol_grad, verbose=self.log)
         u, _, stat = next(rotaiter)
-        cput1 = log.timer("initializing CIAH", *cput0)
+        cput1 = self.log.timer("initializing CIAH", *cput0)
 
         tot_kf = stat.tot_kf
         tot_hop = stat.tot_hop
@@ -573,7 +447,7 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
             e, e_max = self.cost_function(u0)
             e_last, de = e, e - e_last
 
-            log.info(
+            self.log.info(
                 "macro= %d  f(x)= %.14g  delta_f= %g  max(Gpq)= %g  %d KF %d Hx",
                 imacro + 1,
                 e,
@@ -582,7 +456,7 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
                 stat.tot_kf + 1,
                 stat.tot_hop,
             )
-            cput1 = log.timer("cycle= %d" % (imacro + 1), *cput1)
+            cput1 = self.log.timer("cycle= %d" % (imacro + 1), *cput1)
 
             if e_max < self.conv_tol:
                 conv = True
@@ -598,7 +472,7 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
             tot_hop += stat.tot_hop
 
         rotaiter.close()
-        log.info(
+        self.log.info(
             "macro X = %d  f(x)= %.14g  max(Gpq)= %g  %d intor %d KF %d Hx",
             imacro + 1,
             e,
@@ -607,11 +481,24 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
             tot_kf + imacro + 1,
             tot_hop,
         )
+
+        if imacro == self.max_cycle - 1:
+            if de == 0.0:
+                self.log.warn(
+                    "Maximum symmetrization within supplied orbital space reached."
+                )
+                finished = True
+            else:
+                finished = False
+        else:
+            finished = True
+
         # Sort the symmetrized orbitals to make each orbital as close as
         # possible to the corresponding input orbitals
         sorted_idx = mo_mapping.mo_1to1map(u0)
         self.mo_coeff = np.dot(self.mo_coeff, u0[:, sorted_idx])
-        return self.mo_coeff
+
+        return self.mo_coeff, finished
 
 
 class symmetrize_all(symmetrize):
@@ -693,7 +580,7 @@ class symmetrize_all(symmetrize):
                 g0[incl, :] -= uu_ia @ su_pa.T
                 g0[excl, :] -= uu_ia.T @ us_ip
 
-        g = self.pack_uniq_var(g0 - g0.T) * 2
+        g = MAX_CONV * self.pack_uniq_var(g0 - g0.T) * 2
 
         # calculate hessian diagonal
         h_diag0 = np.zeros((norb, norb), dtype=np.float64)
@@ -718,7 +605,7 @@ class symmetrize_all(symmetrize):
                     + np.einsum("aa,ii->ia", su_ab, us_ij)
                 )
 
-        h_diag = self.pack_uniq_var(h_diag0 + h_diag0.T) * 2
+        h_diag = MAX_CONV * self.pack_uniq_var(h_diag0 + h_diag0.T) * 2
 
         def h_op(x: np.ndarray):
             """
@@ -754,9 +641,9 @@ class symmetrize_all(symmetrize):
                         + uu_ia.T @ x_ip @ ss_pq
                     )
 
-            return DIFF * self.pack_uniq_var(hx0 - hx0.T) * 4
+            return MAX_CONV * self.pack_uniq_var(hx0 - hx0.T) * 4
 
-        return DIFF * g, h_op, DIFF * h_diag
+        return g, h_op, h_diag
 
     def get_grad(self, u: Optional[np.ndarray] = None):
         """
@@ -794,7 +681,7 @@ class symmetrize_all(symmetrize):
                 g0[incl, :] -= uu_ia @ su_pa.T
                 g0[excl, :] -= uu_ia.T @ us_ip
 
-        return DIFF * self.pack_uniq_var(g0 - g0.T) * 2
+        return MAX_CONV * self.pack_uniq_var(g0 - g0.T) * 2
 
     def cost_function(self, u: Optional[np.ndarray] = None):
         """
@@ -820,7 +707,26 @@ class symmetrize_all(symmetrize):
                     g_max = max(g_max, np.max(np.abs(g)))
                 p += np.sum(g**2)
 
-        return DIFF * p, g_max
+        return MAX_CONV * p, g_max
+
+    def kernel(
+        self, callback: Optional[Callable] = None, verbose: Optional[int] = None
+    ) -> Tuple[np.ndarray, bool]:
+        """
+        this function calls the parent class kernel function and checks whether the
+        algorithm has converged
+        """
+        mo_coeff, finished = super().kernel(callback, verbose)
+
+        if not finished:
+            self.log.error(
+                "Symmetrization of symmetry-equivalent orbitals within "
+                "symmetry-invariant blocks has not converged. Try increasing "
+                "max_cycle or reducing symm_eqv_thresh."
+            )
+            raise RuntimeError
+
+        return mo_coeff, finished
 
 
 class symmetrize_eqv(symmetrize):
@@ -908,7 +814,7 @@ class symmetrize_eqv(symmetrize):
                 g0[incl, :] -= uu_ia @ su_pa.T
                 g0[excl, :] -= uu_ia.T @ us_ip
 
-        g = self.pack_uniq_var(g0 - g0.T) * 2
+        g = MAX_CONV * self.pack_uniq_var(g0 - g0.T) * 2
 
         # calculate hessian diagonal
         h_diag0 = np.zeros((norb, norb), dtype=np.float64)
@@ -930,7 +836,7 @@ class symmetrize_eqv(symmetrize):
             h_diag0[incl, :] += np.diag(su_pa_su_paT[orbset])[np.newaxis, :]
             h_diag0[excl, :] += np.diag(us_ipT_us_ip[orbset])[np.newaxis, :]
 
-        h_diag = self.pack_uniq_var(h_diag0 + h_diag0.T) * 2
+        h_diag = MAX_CONV * self.pack_uniq_var(h_diag0 + h_diag0.T) * 2
 
         def h_op(x: np.ndarray):
             """
@@ -957,9 +863,9 @@ class symmetrize_eqv(symmetrize):
                 hx0[incl, :] += x_ip @ su_pa_su_paT[orbset]
                 hx0[excl, :] += x_ap @ us_ipT_us_ip[orbset]
 
-            return DIFF * self.pack_uniq_var(hx0 - hx0.T) * 4
+            return MAX_CONV * self.pack_uniq_var(hx0 - hx0.T) * 4
 
-        return DIFF * g, h_op, DIFF * h_diag
+        return g, h_op, h_diag
 
     def get_grad(self, u: Optional[np.ndarray] = None):
         """
@@ -997,7 +903,7 @@ class symmetrize_eqv(symmetrize):
                 g0[incl, :] -= uu_ia @ su_pa.T
                 g0[excl, :] -= uu_ia.T @ us_ip
 
-        return DIFF * self.pack_uniq_var(g0 - g0.T) * 2
+        return MAX_CONV * self.pack_uniq_var(g0 - g0.T) * 2
 
     def cost_function(self, u: Optional[np.ndarray] = None):
         """
@@ -1021,10 +927,28 @@ class symmetrize_eqv(symmetrize):
                     g_max = max(g_max, np.max(np.abs(g)))
                 p += np.sum(g**2)
 
-        return DIFF * p, g_max
+        return MAX_CONV * p, g_max
+
+    def kernel(
+        self, callback: Optional[Callable] = None, verbose: Optional[int] = None
+    ) -> Tuple[np.ndarray, bool]:
+        """
+        this function calls the parent class kernel function and checks whether the
+        algorithm has converged
+        """
+        mo_coeff, finished = super().kernel(callback, verbose)
+
+        if not finished:
+            self.log.error(
+                "Symmetrization of symmetry-invariant blocks has not converged. Try "
+                "increasing max_cycle or reducing inv_block_thresh."
+            )
+            raise RuntimeError
+
+        return mo_coeff, finished
 
 
-def symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.ndarray:
+def get_symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.ndarray:
     """
     generates symmetry operation transformation matrix in orthogonal ao basis
     """
