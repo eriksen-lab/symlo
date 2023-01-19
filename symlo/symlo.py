@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from typing import Tuple, Dict, List, Optional, Callable, Union, Set
 
 
-COORD_TOL = 1.0e-14
+COORD_TOL = 1.0e-13
 MAX_CONV = 1 / np.sqrt(1e-14)
 
 
