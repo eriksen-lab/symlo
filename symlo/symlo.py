@@ -964,7 +964,7 @@ def get_symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.nd
     # rotate coordinates to symmetry axes
     coords = (symm_axes @ coords.T).T
 
-    # get Wigner D matrices to rotate aos from input coordinate system to symmetry axes
+    # get Wigner D matrices to rotate aos from symmetry axes to input coordinate system
     Ds = symm.basis._momentum_rotation_matrices(mol, symm_axes)
 
     # get different equivalent atom types
@@ -1013,7 +1013,7 @@ def get_symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.nd
             sort_idx = np.argsort(lex_idx)
 
             # get new coordinates of atoms after applying symmetry operation
-            new_atom_coords = (cart_op_mat.T @ atom_coords.T).T
+            new_atom_coords = (cart_op_mat @ atom_coords.T).T
 
             # get indices necessary to sort new coords lexicographically
             lex_idx = symm.geom.argsort_coords(new_atom_coords)
@@ -1040,10 +1040,10 @@ def get_symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.nd
                 op, ao_start_list[atom_id] : ao_stop_list[atom_id]
             ] = np.arange(ao_start_list[permut_atom_id], ao_stop_list[permut_atom_id])
 
-        # rotate symmetry operation matrices for spherical harmonics to original
-        # coordinates and back
+        # create combined rotation matrix that rotates AOs to symmetry axes, performs a
+        # symmetry operation and rotates AOs back to original axes
         rot_sph_op_mats = [
-            rot_mat.T @ op_mat @ rot_mat for rot_mat, op_mat in zip(Ds, sph_op_mats)
+            rot_mat @ op_mat @ rot_mat.T for rot_mat, op_mat in zip(Ds, sph_op_mats)
         ]
 
         # loop over shells
@@ -1060,7 +1060,7 @@ def get_symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.nd
                 trafo_ao[op, ao_start:ao_stop, ao_start:ao_stop] = rot_sph_op_mats[l]
 
         # permute aos
-        trafo_ao[op] = trafo_ao[op, permut_ao_idx[op]]
+        trafo_ao[op] = trafo_ao[op, :, permut_ao_idx[op]]
 
         # transform to orthogonal ao basis
         trafo_ao[op] = sao @ trafo_ao[op]
