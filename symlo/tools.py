@@ -816,7 +816,7 @@ def get_mo_trafos(
                 tup2.update(orb_contrib[orb][1])
 
                 # delete this orbital
-                orb_contrib.remove(orb_contrib[orb])
+                del orb_contrib[orb]
 
                 # reset orbital counter
                 orb = 0

@@ -191,8 +191,41 @@ def symm_eqv_mo(
                 # add to set of symmetry-equivalent orbitals
                 all_symm_eqv_mos[tup[0][0]].add(tup[1][0])
 
-    # get all unique combinations of symmetry-equivalent orbitals
-    symm_unique_mos = set([tuple(sorted(list(orbset))) for orbset in all_symm_eqv_mos])
+    # intitialze list of unique combinations of symmetry-equivalent orbitals
+    symm_unique_mos: List[Set[int]] = []
+
+    # loop over orbitals until none are left
+    while len(all_symm_eqv_mos) > 0:
+
+        # add current orbital to first tuple
+        symm_unique_mos.append(all_symm_eqv_mos[0])
+
+        # delete current orbital
+        del all_symm_eqv_mos[0]
+
+        # set orbital counter
+        orb = 0
+
+        # loop until all remaining orbitals are considered
+        while orb < len(all_symm_eqv_mos):
+
+            # check if any orbital this orbital transforms into coincides with any
+            # orbital in second tuple
+            if not symm_unique_mos[-1].isdisjoint(all_symm_eqv_mos[orb]):
+
+                # add this orbital to first tuple
+                symm_unique_mos[-1].update(all_symm_eqv_mos[orb])
+
+                # delete this orbital
+                del all_symm_eqv_mos[orb]
+
+                # reset orbital counter
+                orb = 0
+
+            else:
+
+                # increment orbital counter
+                orb += 1
 
     # get number of symmetry-unique mos
     nunique = len(symm_unique_mos)
