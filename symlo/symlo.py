@@ -315,7 +315,7 @@ def symmetrize_mos(
         symm_block.verbose = verbose
         symm_block.max_cycle = max_cycle
         symm_block.conv_tol = 1e1 * conv_tol
-        block_mo_coeff, _ = symm_block.kernel()
+        mo_coeff[:, ncore + np.array(block)], _ = symm_block.kernel()
 
     # loop over symmetry-invariant blocks
     for block in tot_symm_virt_blocks:
@@ -354,7 +354,7 @@ def symmetrize_mos(
         symm_block.verbose = verbose
         symm_block.max_cycle = max_cycle
         symm_block.conv_tol = 1e1 * conv_tol
-        block_mo_coeff, _ = symm_block.kernel()
+        mo_coeff[:, nocc + np.array(block)], _ = symm_block.kernel()
 
     return symm_eqv_mos, mo_coeff
 
