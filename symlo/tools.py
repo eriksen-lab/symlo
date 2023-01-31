@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
 
-    from typing import Tuple, Dict, List, Union
+    from typing import Tuple, Dict, List, Union, Set
 
 
 def get_symm_op_matrices(
@@ -903,6 +903,69 @@ def get_symm_inv_blocks(
             break
 
     return symm_inv_blocks, reorder
+
+
+def get_symm_unique_mos(
+    orbsym: List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]], norb: int
+) -> np.ndarray:
+    """
+    generate list of symmetry-unique MOs
+    """
+    # initialize list of symmetry-equivalent orbitals for every orbital
+    all_symm_eqv_mos: List[Set[int]] = [set() for _ in range(norb)]
+
+    # loop over symmetry operation
+    for op_eqv_mos in orbsym:
+
+        # loop over orbital tuple
+        for tup in op_eqv_mos:
+
+            # check if single orbital transforms into other single orbital
+            if len(tup[0]) == 1:
+
+                # add to set of symmetry-equivalent orbitals
+                all_symm_eqv_mos[tup[0][0]].add(tup[1][0])
+
+    # inititialze list of unique combinations of symmetry-equivalent orbitals
+    symm_unique_mo_combs: List[Set[int]] = []
+
+    # loop over orbitals until none are left
+    while len(all_symm_eqv_mos) > 0:
+
+        # add current orbital to first tuple
+        symm_unique_mo_combs.append(all_symm_eqv_mos[0])
+
+        # delete current orbital
+        del all_symm_eqv_mos[0]
+
+        # set orbital counter
+        orb = 0
+
+        # loop until all remaining orbitals are considered
+        while orb < len(all_symm_eqv_mos):
+
+            # check if any orbital this orbital transforms into coincides with any
+            # orbital in second tuple
+            if not symm_unique_mo_combs[-1].isdisjoint(all_symm_eqv_mos[orb]):
+
+                # add this orbital to first tuple
+                symm_unique_mo_combs[-1].update(all_symm_eqv_mos[orb])
+
+                # delete this orbital
+                del all_symm_eqv_mos[orb]
+
+                # reset orbital counter
+                orb = 0
+
+            else:
+
+                # increment orbital counter
+                orb += 1
+
+    # pick one orbital from every set
+    symm_unique_mos = np.array([list(tup)[0] for tup in symm_unique_mo_combs])
+
+    return symm_unique_mos
 
 
 def _cubic_coords() -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:

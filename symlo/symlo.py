@@ -25,6 +25,7 @@ from symlo.tools import (
     get_symm_coord,
     get_mo_trafos,
     get_symm_inv_blocks,
+    get_symm_unique_mos,
 )
 
 if TYPE_CHECKING:
@@ -177,55 +178,7 @@ def symm_eqv_mo(
         np.save("occ_overlap_after.npy", new_all_symm_occ_ovlp)
         np.save("virt_overlap_after.npy", new_all_symm_virt_ovlp)
 
-    all_symm_eqv_mos: List[Set[int]] = [set() for _ in range(norb)]
-
-    # loop over symmetry operation
-    for op_eqv_mos in symm_eqv_mos:
-
-        # loop over orbital tuple
-        for tup in op_eqv_mos:
-
-            # check if single orbital transforms into other single orbital
-            if len(tup[0]) == 1:
-
-                # add to set of symmetry-equivalent orbitals
-                all_symm_eqv_mos[tup[0][0]].add(tup[1][0])
-
-    # intitialze list of unique combinations of symmetry-equivalent orbitals
-    symm_unique_mos: List[Set[int]] = []
-
-    # loop over orbitals until none are left
-    while len(all_symm_eqv_mos) > 0:
-
-        # add current orbital to first tuple
-        symm_unique_mos.append(all_symm_eqv_mos[0])
-
-        # delete current orbital
-        del all_symm_eqv_mos[0]
-
-        # set orbital counter
-        orb = 0
-
-        # loop until all remaining orbitals are considered
-        while orb < len(all_symm_eqv_mos):
-
-            # check if any orbital this orbital transforms into coincides with any
-            # orbital in second tuple
-            if not symm_unique_mos[-1].isdisjoint(all_symm_eqv_mos[orb]):
-
-                # add this orbital to first tuple
-                symm_unique_mos[-1].update(all_symm_eqv_mos[orb])
-
-                # delete this orbital
-                del all_symm_eqv_mos[orb]
-
-                # reset orbital counter
-                orb = 0
-
-            else:
-
-                # increment orbital counter
-                orb += 1
+    symm_unique_mos = get_symm_unique_mos(symm_eqv_mos, norb)
 
     # get number of symmetry-unique mos
     nunique = len(symm_unique_mos)
