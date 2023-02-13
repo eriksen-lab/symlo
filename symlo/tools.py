@@ -573,7 +573,7 @@ def get_symm_coord(
 
         if point_group[1:-1] == "oo":
 
-            _, u1 = rawsys.cartesian_tensor(1)
+            w1, u1 = rawsys.cartesian_tensor(1)
 
             if np.allclose(w1[:2], 0, atol=symm.TOLERANCE / np.sqrt(1 + len(atoms))):
                 correct_symm = True
