@@ -231,83 +231,77 @@ def symmetrize_mos(
     symm_eqv_occ_mo: List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]]
     symm_eqv_virt_mo: List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]]
 
-    # loop over symmetry-invariant blocks
+    # loop over symmetry-invariant occupied blocks
     for block in tot_symm_occ_blocks:
 
-        symm_eqv_occ_mo = []
+        # detect symmetry-equivalent orbitals
+        symm_eqv_occ_mo = detect_eqv_symm(
+            mo_coeff[:, ncore + np.array(block)], trafo_ao, symm_eqv_thresh, nop
+        )
 
-        # get mo coefficients for block
-        block_mo_coeff = mo_coeff[:, ncore + np.array(block)]
-
-        # loop over symmetry operations
-        for op in range(nop):
-
-            # transform mos
-            op_block_mo_coeff = trafo_ao[op] @ block_mo_coeff
-
-            # get overlap between mos and transformed mos
-            symm_trafo_ovlp = block_mo_coeff.T @ op_block_mo_coeff
-
-            # get list of symmetry equivalent mos for this symmetry operation
-            symm_eqv_occ_mo.append(
-                get_mo_trafos(symm_trafo_ovlp, len(block), symm_eqv_thresh)
-            )
-
-            # add equivalent orbitals
-            shifted_symm_mo = [
-                (
-                    tuple(block[orb] for orb in orb_comb[0]),
-                    tuple(block[orb] for orb in orb_comb[1]),
-                )
-                for orb_comb in symm_eqv_occ_mo[-1]
-            ]
-            symm_eqv_mos[op].extend(shifted_symm_mo)
-
-        # occupied - occupied block
-        symm_block = symmetrize_all(mol, trafo_ao, symm_eqv_occ_mo, block_mo_coeff)
+        # symmetrize block
+        symm_block = symmetrize_all(
+            mol, trafo_ao, symm_eqv_occ_mo, mo_coeff[:, ncore + np.array(block)]
+        )
         symm_block.verbose = verbose
         symm_block.max_cycle = max_cycle
         symm_block.conv_tol = 1e1 * conv_tol
         mo_coeff[:, ncore + np.array(block)], _ = symm_block.kernel()
 
-    # loop over symmetry-invariant blocks
-    for block in tot_symm_virt_blocks:
+        # detect symmetry-equivalent orbitals again (this can be necessary when two
+        # different sets of orbitals were detected for a symmetry operation and its
+        # inverse)
+        symm_eqv_occ_mo = detect_eqv_symm(
+            mo_coeff[:, ncore + np.array(block)], trafo_ao, 1e1 * conv_tol, nop
+        )
 
-        symm_eqv_virt_mo = []
-
-        # get mo coefficients for block
-        block_mo_coeff = mo_coeff[:, nocc + np.array(block)]
-
-        # loop over symmetry operations
+        # add equivalent orbitals
         for op in range(nop):
-
-            # transform mos
-            op_block_mo_coeff = trafo_ao[op] @ block_mo_coeff
-
-            # get overlap of mos and transformed mos
-            symm_trafo_ovlp = block_mo_coeff.T @ op_block_mo_coeff
-
-            # get list of symmetry equivalent mos for this symmetry operation
-            symm_eqv_virt_mo.append(
-                get_mo_trafos(symm_trafo_ovlp, len(block), symm_eqv_thresh)
+            symm_eqv_mos[op].extend(
+                [
+                    (
+                        tuple(ncore + block[orb] for orb in orb_comb[0]),
+                        tuple(ncore + block[orb] for orb in orb_comb[1]),
+                    )
+                    for orb_comb in symm_eqv_occ_mo[-1]
+                ]
             )
 
-            # add equivalent orbitals
-            shifted_symm_mo = [
-                (
-                    tuple(nocc + block[orb] for orb in orb_comb[0]),
-                    tuple(nocc + block[orb] for orb in orb_comb[1]),
-                )
-                for orb_comb in symm_eqv_virt_mo[-1]
-            ]
-            symm_eqv_mos[op].extend(shifted_symm_mo)
+    # loop over symmetry-invariant virtual blocks
+    for block in tot_symm_virt_blocks:
 
-        # virtual - virtual block
-        symm_block = symmetrize_all(mol, trafo_ao, symm_eqv_virt_mo, block_mo_coeff)
+        # detect symmetry-equivalent orbitals
+        symm_eqv_virt_mo = detect_eqv_symm(
+            mo_coeff[:, nocc + np.array(block)], trafo_ao, symm_eqv_thresh, nop
+        )
+
+        # symmetrize block
+        symm_block = symmetrize_all(
+            mol, trafo_ao, symm_eqv_virt_mo, mo_coeff[:, nocc + np.array(block)]
+        )
         symm_block.verbose = verbose
         symm_block.max_cycle = max_cycle
         symm_block.conv_tol = 1e1 * conv_tol
         mo_coeff[:, nocc + np.array(block)], _ = symm_block.kernel()
+
+        # detect symmetry-equivalent orbitals again (this can be necessary when two
+        # different sets of orbitals were detected for a symmetry operation and its
+        # inverse)
+        symm_eqv_virt_mo = detect_eqv_symm(
+            mo_coeff[:, nocc + np.array(block)], trafo_ao, 1e1 * conv_tol, nop
+        )
+
+        # add equivalent orbitals
+        for op in range(nop):
+            symm_eqv_mos[op].extend(
+                [
+                    (
+                        tuple(nocc + block[orb] for orb in orb_comb[0]),
+                        tuple(nocc + block[orb] for orb in orb_comb[1]),
+                    )
+                    for orb_comb in symm_eqv_virt_mo[op]
+                ]
+            )
 
     return symm_eqv_mos, mo_coeff
 
@@ -936,7 +930,8 @@ class symmetrize_eqv(symmetrize):
 
 def get_symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.ndarray:
     """
-    generates symmetry operation transformation matrix in orthogonal ao basis
+    this function generates a symmetry operation transformation matrix in the
+    orthogonal ao basis
     """
     # get atom coords
     coords = mol.atom_coords()
@@ -1052,3 +1047,29 @@ def get_symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.nd
         trafo_ao[op] = sao @ trafo_ao[op]
 
     return trafo_ao
+
+
+def detect_eqv_symm(
+    mo_coeff: np.ndarray, trafo_ao: np.ndarray, symm_eqv_tol: float, nop: int
+) -> List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]]:
+    """
+    this function detects symmetry-equivalent orbitals
+    """
+    # initialize list of symmetry-equivalent mos for every symmetry operation
+    symm_eqv_mo = []
+
+    # loop over symmetry operations
+    for op in range(nop):
+
+        # transform mos
+        op_mo_coeff = trafo_ao[op] @ mo_coeff
+
+        # get overlap of mos and transformed mos
+        symm_trafo_ovlp = mo_coeff.T @ op_mo_coeff
+
+        # add list of symmetry equivalent mos for this symmetry operation
+        symm_eqv_mo.append(
+            get_mo_trafos(symm_trafo_ovlp, mo_coeff.shape[1], symm_eqv_tol)
+        )
+
+    return symm_eqv_mo
