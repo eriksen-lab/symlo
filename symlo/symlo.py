@@ -263,7 +263,7 @@ def symmetrize_mos(
                         tuple(ncore + block[orb] for orb in orb_comb[0]),
                         tuple(ncore + block[orb] for orb in orb_comb[1]),
                     )
-                    for orb_comb in symm_eqv_occ_mo[-1]
+                    for orb_comb in symm_eqv_occ_mo[op]
                 ]
             )
 
