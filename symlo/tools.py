@@ -759,7 +759,7 @@ def ao_trafo_mat(
 
 
 def get_mo_trafos(
-    symm_trafo_ovlp: np.ndarray, tot_len: int, symm_tol: float
+    symm_trafo_ovlp: np.ndarray, tot_len: int, symm_tol: float, rel_thresh: bool
 ) -> List[Tuple[Tuple[int, ...], Tuple[int, ...]]]:
     """
     this function generates a list of symmetry-invariant and symmetry-equivalent MOs
@@ -776,7 +776,7 @@ def get_mo_trafos(
     orb_contrib: List[Tuple[int, List[int]]] = []
 
     # calculate threshold up to which orbital contributions are considered
-    thresh = symm_tol * np.max(symm_trafo_ovlp, axis=1)
+    thresh = symm_tol * np.max(symm_trafo_ovlp, axis=1) if rel_thresh else symm_tol
 
     # get elements of with significant overlap
     signif_ovlp = symm_trafo_ovlp > thresh

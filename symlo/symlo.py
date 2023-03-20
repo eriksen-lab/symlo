@@ -236,7 +236,7 @@ def symmetrize_mos(
 
         # detect symmetry-equivalent orbitals
         symm_eqv_occ_mo = detect_eqv_symm(
-            mo_coeff[:, ncore + np.array(block)], trafo_ao, symm_eqv_thresh, nop
+            mo_coeff[:, ncore + np.array(block)], trafo_ao, symm_eqv_thresh, nop, True
         )
 
         # symmetrize block
@@ -252,7 +252,7 @@ def symmetrize_mos(
         # different sets of orbitals were detected for a symmetry operation and its
         # inverse)
         symm_eqv_occ_mo = detect_eqv_symm(
-            mo_coeff[:, ncore + np.array(block)], trafo_ao, 1e1 * conv_tol, nop
+            mo_coeff[:, ncore + np.array(block)], trafo_ao, 1e1 * conv_tol, nop, False
         )
 
         # add equivalent orbitals
@@ -272,7 +272,7 @@ def symmetrize_mos(
 
         # detect symmetry-equivalent orbitals
         symm_eqv_virt_mo = detect_eqv_symm(
-            mo_coeff[:, nocc + np.array(block)], trafo_ao, symm_eqv_thresh, nop
+            mo_coeff[:, nocc + np.array(block)], trafo_ao, symm_eqv_thresh, nop, True
         )
 
         # symmetrize block
@@ -288,7 +288,7 @@ def symmetrize_mos(
         # different sets of orbitals were detected for a symmetry operation and its
         # inverse)
         symm_eqv_virt_mo = detect_eqv_symm(
-            mo_coeff[:, nocc + np.array(block)], trafo_ao, 1e1 * conv_tol, nop
+            mo_coeff[:, nocc + np.array(block)], trafo_ao, 1e1 * conv_tol, nop, False
         )
 
         # add equivalent orbitals
@@ -1050,7 +1050,11 @@ def get_symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.nd
 
 
 def detect_eqv_symm(
-    mo_coeff: np.ndarray, trafo_ao: np.ndarray, symm_eqv_tol: float, nop: int
+    mo_coeff: np.ndarray,
+    trafo_ao: np.ndarray,
+    symm_eqv_tol: float,
+    nop: int,
+    rel_thresh: bool,
 ) -> List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]]:
     """
     this function detects symmetry-equivalent orbitals
@@ -1069,7 +1073,7 @@ def detect_eqv_symm(
 
         # add list of symmetry equivalent mos for this symmetry operation
         symm_eqv_mo.append(
-            get_mo_trafos(symm_trafo_ovlp, mo_coeff.shape[1], symm_eqv_tol)
+            get_mo_trafos(symm_trafo_ovlp, mo_coeff.shape[1], symm_eqv_tol, rel_thresh)
         )
 
     return symm_eqv_mo
