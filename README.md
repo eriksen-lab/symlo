@@ -50,7 +50,7 @@ Tutorials
 None at the moment, but please have a look at the [examples](symlo/examples/) that 
 accompany the code.
 
-Citing PyMBE
+Citing SymLo
 ------------
 
 The following paper documents the development of the SymLo code and the theory 
