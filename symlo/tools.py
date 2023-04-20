@@ -27,7 +27,6 @@ from pyscf.lib.exceptions import PointGroupSymmetryError
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-
     from typing import Tuple, Dict, List, Union, Set
 
 
@@ -42,37 +41,31 @@ def get_symm_op_matrices(
 
     # 3D rotation group
     if point_group == "SO(3)":
-
         # same-atom symmetries are currently not exploited
         pass
 
     # proper cyclic groups Cn
     elif point_group[0] == "C" and point_group[1:].isnumeric():
-
         tot_main_rot = int(point_group[1:])
 
         # Cn
         for i in range(1, tot_main_rot):
-
             symm_ops.append(
                 _rot_matrix(np.array([0.0, 0.0, 1.0]), i * 2 * pi / tot_main_rot, l_max)
             )
 
     # improper cyclic group Ci
     elif point_group == "Ci":
-
         # i
         symm_ops.append(_inv_matrix(l_max))
 
     # improper cyclic group Cs
     elif point_group == "Cs":
-
         # sigma_h
         symm_ops.append(_reflect_matrix(np.array([0.0, 0.0, 1.0]), l_max))
 
     # improper cyclic group Sn
     elif point_group[0] == "S":
-
         tot_main_rot = int(point_group[1:])
 
         # Cn, Sn and i
@@ -92,7 +85,6 @@ def get_symm_op_matrices(
 
     # dihedral groups Dn
     elif point_group[0] == "D" and point_group[1:].isnumeric():
-
         tot_main_rot = int(point_group[1:])
 
         # Cn
@@ -109,7 +101,6 @@ def get_symm_op_matrices(
 
     # Dnh
     elif point_group[0] == "D" and point_group[-1] == "h":
-
         # treat Dooh as D2h because same-atom symmetries are currently not exploited
         if point_group[1:-1] == "oo":
             tot_main_rot = 2
@@ -150,7 +141,6 @@ def get_symm_op_matrices(
 
     # Dnd
     elif point_group[0] == "D" and point_group[-1] == "d":
-
         tot_main_rot = int(point_group[1:-1])
 
         # Cn
@@ -184,7 +174,6 @@ def get_symm_op_matrices(
 
     # Cnv
     elif point_group[0] == "C" and point_group[-1] == "v":
-
         # treat Coov as C2v because same-atom symmetries are currently not exploited
         if point_group[1:-1] == "oo":
             tot_main_rot = 2
@@ -205,7 +194,6 @@ def get_symm_op_matrices(
 
     # Cnh
     elif point_group[0] == "C" and point_group[-1] == "h":
-
         tot_main_rot = int(point_group[1:-1])
 
         # Cn
@@ -228,7 +216,6 @@ def get_symm_op_matrices(
 
     # cubic group O
     elif point_group == "O":
-
         corners, edges, surfaces = _cubic_coords()
 
         # C3
@@ -249,7 +236,6 @@ def get_symm_op_matrices(
 
     # cubic group T
     elif point_group == "T":
-
         corners, edges, surfaces = _cubic_coords()
 
         # C2
@@ -263,7 +249,6 @@ def get_symm_op_matrices(
 
     # cubic group Oh
     elif point_group == "Oh":
-
         corners, edges, surfaces = _cubic_coords()
 
         # C3
@@ -308,7 +293,6 @@ def get_symm_op_matrices(
 
     # cubic group Th
     elif point_group == "Th":
-
         corners, edges, surfaces = _cubic_coords()
 
         # C2
@@ -334,7 +318,6 @@ def get_symm_op_matrices(
 
     # cubic group Td
     elif point_group == "Td":
-
         corners, edges, surfaces = _cubic_coords()
 
         # C2
@@ -357,7 +340,6 @@ def get_symm_op_matrices(
 
     # icosahedral group I
     elif point_group == "I":
-
         corners, edges, surfaces = _icosahedric_coords()
 
         # C5
@@ -380,7 +362,6 @@ def get_symm_op_matrices(
 
     # icosahedral group Ih
     elif point_group == "Ih":
-
         corners, edges, surfaces = _icosahedric_coords()
 
         # C5
@@ -425,7 +406,6 @@ def get_symm_op_matrices(
             symm_ops.append(_reflect_matrix(coord, l_max))
 
     else:
-
         raise PointGroupSymmetryError("Unknown Point Group.")
 
     return symm_ops
@@ -450,19 +430,15 @@ def get_symm_coord(
 
     # 3D rotation group
     if point_group == "SO3":
-
         symm_axes = np.eye(3)
 
     # proper cyclic groups Cn
     elif point_group[0] == "C" and point_group[1:].isnumeric():
-
         if point_group[1:] == 1:
-
             correct_symm = True
             symm_axes = np.eye(3)
 
         else:
-
             tot_main_rot = int(point_group[1:])
 
             possible_cn = rawsys.search_possible_rotations()
@@ -478,14 +454,12 @@ def get_symm_coord(
 
     # improper cyclic group Ci
     elif point_group == "Ci":
-
         if rawsys.has_icenter():
             correct_symm = True
             symm_axes = np.eye(3)
 
     # improper cyclic group Cs
     elif point_group == "Cs":
-
         mirror = rawsys.search_mirrorx(None, 1)
 
         if mirror is not None:
@@ -494,7 +468,6 @@ def get_symm_coord(
 
     # improper cyclic group Sn
     elif point_group[0] == "S":
-
         tot_main_rot = int(point_group[1:])
 
         possible_cn = rawsys.search_possible_rotations()
@@ -511,7 +484,6 @@ def get_symm_coord(
 
     # dihedral groups Dn
     elif point_group[0] == "D" and point_group[1:].isnumeric():
-
         tot_main_rot = int(point_group[1:])
 
         possible_cn = rawsys.search_possible_rotations()
@@ -525,9 +497,7 @@ def get_symm_coord(
 
     # Dnh
     elif point_group[0] == "D" and point_group[-1] == "h":
-
         if point_group[1:-1] == "oo":
-
             w1, u1 = rawsys.cartesian_tensor(1)
 
             if (
@@ -538,7 +508,6 @@ def get_symm_coord(
                 symm_axes = u1.T
 
         else:
-
             tot_main_rot = int(point_group[1:-1])
 
             possible_cn = rawsys.search_possible_rotations()
@@ -554,7 +523,6 @@ def get_symm_coord(
 
     # Dnd
     elif point_group[0] == "D" and point_group[-1] == "d":
-
         tot_main_rot = int(point_group[1:-1])
 
         possible_cn = rawsys.search_possible_rotations()
@@ -570,9 +538,7 @@ def get_symm_coord(
 
     # Cnv
     elif point_group[0] == "C" and point_group[-1] == "v":
-
         if point_group[1:-1] == "oo":
-
             w1, u1 = rawsys.cartesian_tensor(1)
 
             if np.allclose(w1[:2], 0, atol=symm.TOLERANCE / np.sqrt(1 + len(atoms))):
@@ -580,7 +546,6 @@ def get_symm_coord(
                 symm_axes = u1.T
 
         else:
-
             tot_main_rot = int(point_group[1:-1])
 
             possible_cn = rawsys.search_possible_rotations()
@@ -596,7 +561,6 @@ def get_symm_coord(
 
     # Cnh
     elif point_group[0] == "C" and point_group[-1] == "h":
-
         tot_main_rot = int(point_group[1:-1])
 
         possible_cn = rawsys.search_possible_rotations()
@@ -613,7 +577,6 @@ def get_symm_coord(
 
     # cubic group O
     elif point_group == "O":
-
         possible_cn = rawsys.search_possible_rotations()
         c4_axes = [c4 for c4, n in possible_cn if n == 4 and rawsys.has_rotation(c4, 4)]
 
@@ -625,7 +588,6 @@ def get_symm_coord(
 
     # cubic group T
     elif point_group == "T":
-
         possible_cn = rawsys.search_possible_rotations()
         c3_axes = [c3 for c3, n in possible_cn if n == 3 and rawsys.has_rotation(c3, 3)]
 
@@ -639,7 +601,6 @@ def get_symm_coord(
 
     # cubic group Oh
     elif point_group == "Oh":
-
         possible_cn = rawsys.search_possible_rotations()
         c4_axes = [c4 for c4, n in possible_cn if n == 4 and rawsys.has_rotation(c4, 4)]
 
@@ -651,7 +612,6 @@ def get_symm_coord(
 
     # cubic group Th
     elif point_group == "Th":
-
         possible_cn = rawsys.search_possible_rotations()
         c3_axes = [c3 for c3, n in possible_cn if n == 3 and rawsys.has_rotation(c3, 3)]
 
@@ -665,7 +625,6 @@ def get_symm_coord(
 
     # cubic group Td
     elif point_group == "Td":
-
         possible_cn = rawsys.search_possible_rotations()
         c3_axes = [c3 for c3, n in possible_cn if n == 3 and rawsys.has_rotation(c3, 3)]
 
@@ -681,7 +640,6 @@ def get_symm_coord(
 
     # icosahedral group I
     elif point_group == "I":
-
         possible_cn = rawsys.search_possible_rotations()
         c5_axes = [c5 for c5, n in possible_cn if n == 5 and rawsys.has_rotation(c5, 5)]
 
@@ -695,7 +653,6 @@ def get_symm_coord(
 
     # icosahedral group Ih
     elif point_group == "Ih":
-
         possible_cn = rawsys.search_possible_rotations()
         c5_axes = [c5 for c5, n in possible_cn if n == 5 and rawsys.has_rotation(c5, 5)]
 
@@ -709,11 +666,9 @@ def get_symm_coord(
 
     # check if molecule has symmetry of point group
     if correct_symm:
-
         return charge_center, symm_axes
 
     else:
-
         raise PointGroupSymmetryError(
             "Molecule does not have supplied symmetry. Maybe try reducing symmetry "
             "tolerance."
@@ -744,10 +699,8 @@ def ao_trafo_mat(
 
     # loop over shells
     for shell, l in enumerate(l_shell):
-
         # loop over contracted basis functions in shell
         for bf in range(nctr_shell[shell]):
-
             # get ao index range for contracted basis function
             ao_start = ao_loc[shell] + bf * sph_mats[l].shape[1]
             ao_stop = ao_start + sph_mats[l].shape[1]
@@ -783,13 +736,11 @@ def get_mo_trafos(
 
     # loop over orbitals
     for orb in range(tot_len):
-
         # add empty list for current orbital
         orb_contrib.append((orb, signif_ovlp[orb].nonzero()[0].tolist()))
 
     # loop over orbitals until none are left
     while len(orb_contrib) > 0:
-
         # add current orbital to first tuple
         tup1 = [orb_contrib[0][0]]
 
@@ -804,11 +755,9 @@ def get_mo_trafos(
 
         # loop until all remaining orbitals are considered
         while orb < len(orb_contrib):
-
             # check if any orbital this orbital transforms into coincides with any
             # orbital in second tuple
             if not tup2.isdisjoint(orb_contrib[orb][1]):
-
                 # add this orbital to first tuple
                 tup1.append(orb_contrib[orb][0])
 
@@ -822,19 +771,16 @@ def get_mo_trafos(
                 orb = 0
 
             else:
-
                 # increment orbital counter
                 orb += 1
 
         # check if every set of orbitals transforms into another set of orbitals of the
         # same size
         if len(tup1) == len(tup2):
-
             # add set of orbitals
             symm_eqv_mos.append((tuple(tup1), tuple(tup2)))
 
         else:
-
             raise RuntimeError(
                 "An error occured when trying to detect orbital symmetry."
             )
@@ -876,18 +822,14 @@ def get_symm_inv_blocks(
 
     # perform until all orbitals are considered
     while True:
-
         # loop over mos
         for mo in range(start, all_symm_trafo_ovlp.shape[0]):
-
             # check if mos overlaps with last block
             if thresh_trafo_ovlp[mo, symm_inv_blocks[-1]].any():
-
                 # add mo
                 symm_inv_blocks[-1].append(mo)
 
             else:
-
                 # create new block
                 symm_inv_blocks.append([mo])
 
@@ -898,7 +840,6 @@ def get_symm_inv_blocks(
                 break
 
         else:
-
             # all orbitals finished
             break
 
@@ -916,13 +857,10 @@ def get_symm_unique_mos(
 
     # loop over symmetry operation
     for op_eqv_mos in orbsym:
-
         # loop over orbital tuple
         for tup in op_eqv_mos:
-
             # check if single orbital transforms into other single orbital
             if len(tup[0]) == 1:
-
                 # add to set of symmetry-equivalent orbitals
                 all_symm_eqv_mos[tup[0][0]].add(tup[1][0])
 
@@ -931,7 +869,6 @@ def get_symm_unique_mos(
 
     # loop over orbitals until none are left
     while len(all_symm_eqv_mos) > 0:
-
         # add current orbital to first tuple
         symm_unique_mo_combs.append(all_symm_eqv_mos[0])
 
@@ -943,11 +880,9 @@ def get_symm_unique_mos(
 
         # loop until all remaining orbitals are considered
         while orb < len(all_symm_eqv_mos):
-
             # check if any orbital this orbital transforms into coincides with any
             # orbital in second tuple
             if not symm_unique_mo_combs[-1].isdisjoint(all_symm_eqv_mos[orb]):
-
                 # add this orbital to first tuple
                 symm_unique_mo_combs[-1].update(all_symm_eqv_mos[orb])
 
@@ -958,7 +893,6 @@ def get_symm_unique_mos(
                 orb = 0
 
             else:
-
                 # increment orbital counter
                 orb += 1
 
@@ -1000,9 +934,9 @@ def _cubic_coords() -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray
     return corners, edges, surfaces
 
 
-def _icosahedric_coords() -> Tuple[
-    List[np.ndarray], List[np.ndarray], List[np.ndarray]
-]:
+def _icosahedric_coords() -> (
+    Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]
+):
     """
     this function defines the coordinates of specific points within an icosahedron
     """
