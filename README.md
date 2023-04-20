@@ -53,8 +53,7 @@ accompany the code.
 Citing SymLo
 ------------
 
-The following paper documents the development of the SymLo code and the theory 
-it implements:
+The following paper documents the theory the SymLo code implements:
 
 * Symmetrization of Localized Molecular Orbitals\
 Greiner, J., Eriksen, J. J.\
@@ -63,4 +62,5 @@ Greiner, J., Eriksen, J. J.\
 Bug reports
 -----------
 
-Bugs can be reported by submitting an [issue](https://github.com/jonas-greiner/symlo/issues)
+Bugs can be reported by submitting an 
+[issue](https://github.com/jonas-greiner/symlo/issues).
