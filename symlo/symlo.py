@@ -15,7 +15,8 @@ __email__ = "jonas.greiner@uni-mainz.de"
 __status__ = "Development"
 
 import numpy as np
-from pyscf import gto, symm, soscf
+from pyscf import gto, symm
+from pyscf.soscf import ciah
 from pyscf.lib.exceptions import PointGroupSymmetryError
 from pyscf.lib import logger
 from typing import TYPE_CHECKING
@@ -102,7 +103,7 @@ def symmetrize_mos(
     ]
 
     # symmetrize with respect to symmetry-invariant blocks
-    symm_inv = symmetrize_eqv(mol, trafo_ao, tot_symm_blocks, symm_mo_coeff)
+    symm_inv = SymCls_eqv(mol, trafo_ao, tot_symm_blocks, symm_mo_coeff)
     symm_inv.max_cycle = max_cycle
     symm_inv.verbose = verbose
     symm_inv.conv_tol = conv_tol
@@ -116,7 +117,7 @@ def symmetrize_mos(
         )
 
         # symmetrize block
-        symm_block = symmetrize_all(mol, trafo_ao, symm_eqv_mo, symm_mo_coeff[:, block])
+        symm_block = SymCls_all(mol, trafo_ao, symm_eqv_mo, symm_mo_coeff[:, block])
         symm_block.verbose = verbose
         symm_block.max_cycle = max_cycle
         symm_block.conv_tol = 1e1 * conv_tol
@@ -170,7 +171,7 @@ def symmetrize_mos(
     return symm_eqv_mos, symm_mo_coeff
 
 
-class symmetrize(soscf.ciah.CIAHOptimizer):
+class SymCls(ciah.CIAHOptimizer):
     r"""
     The symmetrization optimizer that minimizes blocks of the symmetry operation
     transformation matrix
@@ -178,7 +179,7 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
     Args:
         mol : Mole object
 
-    Attributes for symmetrize class:
+    Attributes for SymCls:
         verbose : int
             Print level. Default value equals to :class:`Mole.verbose`.
         max_memory : float or int
@@ -218,7 +219,7 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
         ],
         mo_coeff: np.ndarray,
     ):
-        soscf.ciah.CIAHOptimizer.__init__(self)
+        ciah.CIAHOptimizer.__init__(self)
         self.mol = mol
         self.stdout = mol.stdout
         self.verbose = mol.verbose
@@ -278,7 +279,7 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
 
         u0 = np.eye(self.mo_coeff.shape[1])
 
-        rotaiter = soscf.ciah.rotate_orb_cc(self, u0, conv_tol_grad, verbose=self.log)
+        rotaiter = ciah.rotate_orb_cc(self, u0, conv_tol_grad, verbose=self.log)
         u, _, stat = next(rotaiter)
         cput1 = self.log.timer("initializing CIAH", *cput0)
 
@@ -345,7 +346,7 @@ class symmetrize(soscf.ciah.CIAHOptimizer):
         return self.mo_coeff, finished
 
 
-class symmetrize_all(symmetrize):
+class SymCls_all(SymCls):
     def __init__(
         self,
         mol: gto.Mole,
@@ -567,7 +568,7 @@ class symmetrize_all(symmetrize):
         return mo_coeff, finished
 
 
-class symmetrize_eqv(symmetrize):
+class SymCls_eqv(SymCls):
     def __init__(
         self,
         mol: gto.Mole,
