@@ -107,7 +107,7 @@ def symmetrize_mos(
     symm_inv.max_cycle = max_cycle
     symm_inv.verbose = verbose
     symm_inv.conv_tol = conv_tol
-    symm_mo_coeff, _ = symm_inv.kernel()
+    symm_mo_coeff, _, _ = symm_inv.kernel()
 
     # loop over symmetry-invariant blocks
     for block in tot_symm_blocks:
@@ -121,13 +121,13 @@ def symmetrize_mos(
         symm_block.verbose = verbose
         symm_block.max_cycle = max_cycle
         symm_block.conv_tol = 1e1 * conv_tol
-        symm_mo_coeff[:, block], _ = symm_block.kernel()
+        symm_mo_coeff[:, block], _, g_max = symm_block.kernel()
 
-        # detect symmetry-equivalent orbitals again (this can be necessary when two
-        # different sets of orbitals were detected for a symmetry operation and its
-        # inverse)
+        # detect symmetry-equivalent orbitals again, threshold is now twice the maximum
+        # element after symmetrization (this can be necessary when two different sets
+        # of orbitals were detected for a symmetry operation and its inverse)
         symm_eqv_mo = detect_eqv_symm(
-            symm_mo_coeff[:, block], trafo_ao, 1e1 * conv_tol, nop, False
+            symm_mo_coeff[:, block], trafo_ao, 2 * g_max, nop, False
         )
 
         # add equivalent orbitals
@@ -261,11 +261,11 @@ class SymCls(ciah.CIAHOptimizer):
 
     def kernel(
         self, callback: Optional[Callable] = None, verbose: Optional[int] = None
-    ) -> Tuple[np.ndarray, bool]:
+    ) -> Tuple[np.ndarray, bool, float]:
         from pyscf.tools import mo_mapping
 
         if self.mo_coeff.shape[1] <= 1:
-            return self.mo_coeff, True
+            return self.mo_coeff, True, 0.0
 
         self.log.verbose = self.verbose
 
@@ -343,7 +343,7 @@ class SymCls(ciah.CIAHOptimizer):
         sorted_idx = mo_mapping.mo_1to1map(u0)
         self.mo_coeff = np.dot(self.mo_coeff, u0[:, sorted_idx])
 
-        return self.mo_coeff, finished
+        return self.mo_coeff, finished, e_max
 
 
 class SymCls_all(SymCls):
@@ -550,12 +550,12 @@ class SymCls_all(SymCls):
 
     def kernel(
         self, callback: Optional[Callable] = None, verbose: Optional[int] = None
-    ) -> Tuple[np.ndarray, bool]:
+    ) -> Tuple[np.ndarray, bool, float]:
         """
         this function calls the parent class kernel function and checks whether the
         algorithm has converged
         """
-        mo_coeff, finished = super().kernel(callback, verbose)
+        mo_coeff, finished, g_max = super().kernel(callback, verbose)
 
         if not finished:
             self.log.error(
@@ -565,7 +565,7 @@ class SymCls_all(SymCls):
             )
             raise RuntimeError
 
-        return mo_coeff, finished
+        return mo_coeff, finished, g_max
 
 
 class SymCls_eqv(SymCls):
@@ -761,12 +761,12 @@ class SymCls_eqv(SymCls):
 
     def kernel(
         self, callback: Optional[Callable] = None, verbose: Optional[int] = None
-    ) -> Tuple[np.ndarray, bool]:
+    ) -> Tuple[np.ndarray, bool, float]:
         """
         this function calls the parent class kernel function and checks whether the
         algorithm has converged
         """
-        mo_coeff, finished = super().kernel(callback, verbose)
+        mo_coeff, finished, g_max = super().kernel(callback, verbose)
 
         if not finished:
             self.log.error(
@@ -775,7 +775,7 @@ class SymCls_eqv(SymCls):
             )
             raise RuntimeError
 
-        return mo_coeff, finished
+        return mo_coeff, finished, g_max
 
 
 def get_symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.ndarray:
