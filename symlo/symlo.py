@@ -50,7 +50,7 @@ def symmetrize_mos(
 ) -> Tuple[List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]], np.ndarray]:
     """
     returns an array of permutations of symmetry equivalent orbitals for each
-    symmetry operation
+    symmetry operation and symmetrized orbitals
     """
     # set verbosity if it is not set
     if verbose is None:
@@ -169,6 +169,97 @@ def symmetrize_mos(
     log.info(f"Number of symmetry-unique orbitals: {nunique}\n\n")
 
     return symm_eqv_mos, symm_mo_coeff
+
+
+def detect_mo_symm(
+    mol: gto.Mole,
+    mo_coeff: np.ndarray,
+    point_group: str,
+    verbose: Optional[int] = None,
+    inv_block_thresh: float = 0.3,
+    symm_eqv_thresh: float = 0.3,
+) -> List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]]:
+    """
+    returns an array of permutations of symmetry equivalent orbitals for each
+    symmetry operation
+    """
+    # set verbosity if it is not set
+    if verbose is None:
+        verbose = mol.verbose
+
+    # initialize logger
+    log = logger.new_logger(verbose=verbose)
+
+    # convert point group to standard symbol
+    point_group = symm.std_symb(point_group)
+
+    # get number of orbitals
+    norb = mo_coeff.shape[1]
+
+    # get ao overlap matrix
+    sao = gto.intor_cross("int1e_ovlp", mol, mol)
+
+    # get symmetry transformation matrices in orthogonal ao basis
+    trafo_ao = get_symm_trafo_ao(mol, point_group, sao)
+
+    # get total number of symmetry operations
+    nop = trafo_ao.shape[0]
+
+    # transform mo coefficients
+    op_mo_coeff = trafo_ao @ mo_coeff
+
+    # get overlap between mos and transformed mos
+    trafo_ovlp = np.einsum("ij,nik->njk", mo_coeff, op_mo_coeff)
+
+    # get sum of overlap for all symmetry operations and normalize (the individual
+    # matrices for each symmetry operation are not symmetric because symmetry
+    # operations are not necessarily unitary but their sum is because a group includes
+    # an inverse element for every symmetry operation)
+    all_symm_trafo_ovlp = np.sum(np.abs(trafo_ovlp), axis=0) / nop
+
+    # get blocks that are invariant with respect to all symmetry operations
+    tot_symm_blocks, reorder = get_symm_inv_blocks(
+        all_symm_trafo_ovlp, inv_block_thresh
+    )
+
+    # log data
+    log.info("Symmetry-invariant orbital blocks:")
+    log.info(
+        "\n".join([str([orb for orb in reorder[block]]) for block in tot_symm_blocks])
+    )
+
+    symm_eqv_mos: List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]] = [
+        [] for op in range(nop)
+    ]
+
+    # loop over symmetry-invariant blocks
+    for block in tot_symm_blocks:
+        # detect symmetry-equivalent orbitals
+        symm_eqv_mo = detect_eqv_symm(
+            mo_coeff[:, reorder[block]], trafo_ao, symm_eqv_thresh, nop, True
+        )
+
+        # add equivalent orbitals
+        for op in range(nop):
+            symm_eqv_mos[op].extend(
+                [
+                    (
+                        tuple(reorder[block][orb].item() for orb in orb_comb[0]),
+                        tuple(reorder[block][orb].item() for orb in orb_comb[1]),
+                    )
+                    for orb_comb in symm_eqv_mo[op]
+                ]
+            )
+
+    symm_unique_mos = get_symm_unique_mos(symm_eqv_mos, norb)
+
+    # get number of symmetry-unique mos
+    nunique = len(symm_unique_mos)
+
+    log.info(f"\n\nTotal number of orbitals: {norb}")
+    log.info(f"Number of symmetry-unique orbitals: {nunique}\n\n")
+
+    return symm_eqv_mos
 
 
 class SymCls(ciah.CIAHOptimizer):
