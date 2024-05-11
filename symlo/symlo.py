@@ -15,7 +15,7 @@ __email__ = "jonas.greiner@uni-mainz.de"
 __status__ = "Development"
 
 import numpy as np
-from pyscf import gto, symm
+from pyscf import gto, symm, lib
 from pyscf.soscf import ciah
 from pyscf.lib.exceptions import PointGroupSymmetryError
 from pyscf.lib import logger
@@ -47,6 +47,7 @@ def symmetrize_mos(
     inv_block_thresh: float = 0.3,
     symm_eqv_thresh: float = 0.3,
     heatmap: bool = False,
+    start_idx: int = 0,
 ) -> Tuple[List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]], np.ndarray]:
     """
     returns an array of permutations of symmetry equivalent orbitals for each
@@ -93,7 +94,11 @@ def symmetrize_mos(
 
     # log data
     log.info("Symmetry-invariant orbital blocks:")
-    log.info("\n".join([str([orb for orb in block]) for block in tot_symm_blocks]))
+    log.info(
+        "\n".join(
+            [str([start_idx + orb for orb in block]) for block in tot_symm_blocks]
+        )
+    )
 
     # reorder mo coefficients
     symm_mo_coeff = mo_coeff[:, reorder]
@@ -178,6 +183,7 @@ def detect_mo_symm(
     verbose: Optional[int] = None,
     inv_block_thresh: float = 0.3,
     symm_eqv_thresh: float = 0.3,
+    start_idx: int = 0,
 ) -> List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]]:
     """
     returns an array of permutations of symmetry equivalent orbitals for each
@@ -225,7 +231,12 @@ def detect_mo_symm(
     # log data
     log.info("Symmetry-invariant orbital blocks:")
     log.info(
-        "\n".join([str([orb for orb in reorder[block]]) for block in tot_symm_blocks])
+        "\n".join(
+            [
+                str([start_idx + orb for orb in np.sort(reorder[block])])
+                for block in tot_symm_blocks
+            ]
+        )
     )
 
     symm_eqv_mos: List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]] = [
@@ -262,7 +273,7 @@ def detect_mo_symm(
     return symm_eqv_mos
 
 
-class SymCls(ciah.CIAHOptimizer):
+class SymCls(lib.StreamObject, ciah.CIAHOptimizerMixin):
     r"""
     The symmetrization optimizer that minimizes blocks of the symmetry operation
     transformation matrix
@@ -310,7 +321,7 @@ class SymCls(ciah.CIAHOptimizer):
         ],
         mo_coeff: np.ndarray,
     ):
-        ciah.CIAHOptimizer.__init__(self)
+        ciah.CIAHOptimizerMixin.__init__(self)
         self.mol = mol
         self.stdout = mol.stdout
         self.verbose = mol.verbose
@@ -955,9 +966,9 @@ def get_symm_trafo_ao(mol: gto.Mole, point_group: str, sao: np.ndarray) -> np.nd
         # loop over atoms
         for atom_id, permut_atom_id in enumerate(permut_atom_idx):
             # add ao permutations for atom
-            permut_ao_idx[
-                op, ao_start_list[atom_id] : ao_stop_list[atom_id]
-            ] = np.arange(ao_start_list[permut_atom_id], ao_stop_list[permut_atom_id])
+            permut_ao_idx[op, ao_start_list[atom_id] : ao_stop_list[atom_id]] = (
+                np.arange(ao_start_list[permut_atom_id], ao_stop_list[permut_atom_id])
+            )
 
         # create combined rotation matrix that rotates AOs to symmetry axes, performs a
         # symmetry operation and rotates AOs back to original axes
