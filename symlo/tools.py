@@ -847,7 +847,9 @@ def get_symm_inv_blocks(
 
 
 def get_symm_unique_mos(
-    orbsym: List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]], norb: int
+    orbsym: List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]],
+    norb: int,
+    start_idx: int,
 ) -> np.ndarray:
     """
     generate list of symmetry-unique MOs
@@ -862,7 +864,7 @@ def get_symm_unique_mos(
             # check if single orbital transforms into other single orbital
             if len(tup[0]) == 1:
                 # add to set of symmetry-equivalent orbitals
-                all_symm_eqv_mos[tup[0][0]].add(tup[1][0])
+                all_symm_eqv_mos[tup[0][0] - start_idx].add(tup[1][0])
 
     # inititialze list of unique combinations of symmetry-equivalent orbitals
     symm_unique_mo_combs: List[Set[int]] = []
@@ -900,6 +902,25 @@ def get_symm_unique_mos(
     symm_unique_mos = np.array([list(tup)[0] for tup in symm_unique_mo_combs])
 
     return symm_unique_mos
+
+
+def eqv_prop_blocks(
+    blocks: List[List[int]], block_cyclic_sets: List[List[List[Tuple[int, int]]]]
+) -> List[List[List[int]]]:
+    """
+    this function produces all blocks with the same symmetry properties
+    """
+    eqv_blocks: List[List[List[int]]] = []
+    eqv_blocks_cyclic_sets: List[List[List[Tuple[int, int]]]] = []
+    for block, cyclic_sets in zip(blocks, block_cyclic_sets):
+        try:
+            idx = eqv_blocks_cyclic_sets.index(cyclic_sets)
+            eqv_blocks[idx].append(block)
+        except ValueError:
+            eqv_blocks.append([block])
+            eqv_blocks_cyclic_sets.append(cyclic_sets)
+
+    return eqv_blocks
 
 
 def _cubic_coords() -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:

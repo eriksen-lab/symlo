@@ -5,6 +5,7 @@ __all__ = [
     "get_symm_op_matrices",
     "ao_trafo_mat",
     "get_symm_unique_mos",
+    "eqv_prop_blocks",
 ]
 
 from symlo.symlo import symmetrize_mos, detect_mo_symm
@@ -13,4 +14,5 @@ from symlo.tools import (
     get_symm_op_matrices,
     ao_trafo_mat,
     get_symm_unique_mos,
+    eqv_prop_blocks,
 )

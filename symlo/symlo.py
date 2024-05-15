@@ -48,7 +48,12 @@ def symmetrize_mos(
     symm_eqv_thresh: float = 0.3,
     heatmap: bool = False,
     start_idx: int = 0,
-) -> Tuple[List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]], np.ndarray]:
+) -> Tuple[
+    List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]],
+    np.ndarray,
+    List[List[int]],
+    List[List[List[Tuple[int, int]]]],
+]:
     """
     returns an array of permutations of symmetry equivalent orbitals for each
     symmetry operation and symmetrized orbitals
@@ -114,6 +119,10 @@ def symmetrize_mos(
     symm_inv.conv_tol = conv_tol
     symm_mo_coeff, _, _ = symm_inv.kernel()
 
+    # initialize symmetry-invariant blocks and cyclic sets within blocks
+    blocks: List[List[int]] = []
+    blocks_cyclic_sets: List[List[List[Tuple[int, int]]]] = []
+
     # loop over symmetry-invariant blocks
     for block in tot_symm_blocks:
         # detect symmetry-equivalent orbitals
@@ -135,17 +144,44 @@ def symmetrize_mos(
             symm_mo_coeff[:, block], trafo_ao, 2 * g_max, nop, False
         )
 
-        # add equivalent orbitals
+        # append blocks shifted by starting index
+        blocks.append([start_idx + orb for orb in block])
+
+        # get cyclic sets
+        blocks_cyclic_sets.append([])
         for op in range(nop):
+            # add equivalent orbitals
             symm_eqv_mos[op].extend(
                 [
                     (
-                        tuple(block[orb] for orb in orb_comb[0]),
-                        tuple(block[orb] for orb in orb_comb[1]),
+                        tuple(start_idx + block[orb] for orb in orb_comb[0]),
+                        tuple(start_idx + block[orb] for orb in orb_comb[1]),
                     )
                     for orb_comb in symm_eqv_mo[op]
                 ]
             )
+
+            symm_eqv_mo_list = symm_eqv_mo[op].copy()
+
+            blocks_cyclic_sets[-1].append([])
+
+            # determine number of cyclic sets
+            while len(symm_eqv_mo_list):
+                set_norb = len(symm_eqv_mo_list[0][0])
+                idx = 0
+                set_size = 1
+                start_tuple = symm_eqv_mo_list[0][0]
+                prev_tuple = symm_eqv_mo_list[0][1]
+                del symm_eqv_mo_list[0]
+                while start_tuple != prev_tuple:
+                    for idx in range(len(symm_eqv_mo_list)):
+                        if symm_eqv_mo_list[idx][0] == prev_tuple:
+                            break
+                    set_size += 1
+                    prev_tuple = symm_eqv_mo_list[idx][1]
+                    del symm_eqv_mo_list[idx]
+                blocks_cyclic_sets[-1][-1].append((set_norb, set_size))
+            blocks_cyclic_sets[-1][-1].sort()
 
     # check if input files for heatmap should be printed
     if heatmap:
@@ -165,7 +201,7 @@ def symmetrize_mos(
         np.save("overlap_sorted.npy", sort_all_symm_ovlp)
         np.save("overlap_after.npy", new_all_symm_ovlp)
 
-    symm_unique_mos = get_symm_unique_mos(symm_eqv_mos, norb)
+    symm_unique_mos = get_symm_unique_mos(symm_eqv_mos, norb, start_idx)
 
     # get number of symmetry-unique mos
     nunique = len(symm_unique_mos)
@@ -173,7 +209,7 @@ def symmetrize_mos(
     log.info(f"\n\nTotal number of orbitals: {norb}")
     log.info(f"Number of symmetry-unique orbitals: {nunique}\n\n")
 
-    return symm_eqv_mos, symm_mo_coeff
+    return symm_eqv_mos, symm_mo_coeff, blocks, blocks_cyclic_sets
 
 
 def detect_mo_symm(
@@ -255,14 +291,20 @@ def detect_mo_symm(
             symm_eqv_mos[op].extend(
                 [
                     (
-                        tuple(reorder[block][orb].item() for orb in orb_comb[0]),
-                        tuple(reorder[block][orb].item() for orb in orb_comb[1]),
+                        tuple(
+                            start_idx + reorder[block][orb].item()
+                            for orb in orb_comb[0]
+                        ),
+                        tuple(
+                            start_idx + reorder[block][orb].item()
+                            for orb in orb_comb[1]
+                        ),
                     )
                     for orb_comb in symm_eqv_mo[op]
                 ]
             )
 
-    symm_unique_mos = get_symm_unique_mos(symm_eqv_mos, norb)
+    symm_unique_mos = get_symm_unique_mos(symm_eqv_mos, norb, start_idx)
 
     # get number of symmetry-unique mos
     nunique = len(symm_unique_mos)
