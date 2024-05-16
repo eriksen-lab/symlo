@@ -430,6 +430,7 @@ class SymCls(lib.StreamObject, ciah.CIAHOptimizerMixin):
         tot_kf = stat.tot_kf
         tot_hop = stat.tot_hop
         conv = False
+        limit_reached = False
         e_last = 0
         for imacro in range(self.max_cycle):
             u0 = np.dot(u0, u)
@@ -450,10 +451,13 @@ class SymCls(lib.StreamObject, ciah.CIAHOptimizerMixin):
             if e_max < self.conv_tol:
                 conv = True
 
+            if de == 0.0:
+                limit_reached = True
+
             if callable(callback):
                 callback(locals())
 
-            if conv:
+            if conv or limit_reached:
                 break
 
             u, _, stat = rotaiter.send(u0)
@@ -471,16 +475,15 @@ class SymCls(lib.StreamObject, ciah.CIAHOptimizerMixin):
             tot_hop,
         )
 
-        if imacro == self.max_cycle - 1:
-            if de == 0.0:
-                self.log.warn(
-                    "Maximum symmetrization within supplied orbital space reached."
-                )
-                finished = True
-            else:
-                finished = False
-        else:
+        if conv:
             finished = True
+        elif limit_reached:
+            self.log.warn(
+                "Maximum symmetrization within supplied orbital space reached."
+            )
+            finished = True
+        else:
+            finished = False
 
         # Sort the symmetrized orbitals to make each orbital as close as
         # possible to the corresponding input orbitals
@@ -701,6 +704,10 @@ class SymCls_all(SymCls):
         """
         mo_coeff, finished, g_max = super().kernel(callback, verbose)
 
+        while g_max >= self.conv_tol:
+            self.log.info("Restarting symmetrization")
+            mo_coeff, finished, g_max = super().kernel(callback, verbose)
+
         if not finished:
             self.log.error(
                 "Symmetrization of symmetry-equivalent orbitals within "
@@ -911,6 +918,10 @@ class SymCls_eqv(SymCls):
         algorithm has converged
         """
         mo_coeff, finished, g_max = super().kernel(callback, verbose)
+
+        while g_max >= self.conv_tol:
+            self.log.info("Restarting symmetrization")
+            mo_coeff, finished, g_max = super().kernel(callback, verbose)
 
         if not finished:
             self.log.error(
