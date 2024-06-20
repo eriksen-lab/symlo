@@ -177,6 +177,10 @@ def symmetrize_mos(
                     for idx in range(len(symm_eqv_mo_list)):
                         if symm_eqv_mo_list[idx][0] == prev_tuple:
                             break
+                    else:
+                        raise RuntimeError(
+                            "Could not find consistent cyclic symmetry relationships"
+                        )
                     set_size += 1
                     prev_tuple = symm_eqv_mo_list[idx][1]
                     del symm_eqv_mo_list[idx]

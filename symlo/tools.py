@@ -778,7 +778,7 @@ def get_mo_trafos(
         # same size
         if len(tup1) == len(tup2):
             # add set of orbitals
-            symm_eqv_mos.append((tuple(tup1), tuple(tup2)))
+            symm_eqv_mos.append((tuple(sorted(tup1)), tuple(sorted(tup2))))
 
         else:
             raise RuntimeError(
