@@ -724,66 +724,102 @@ def get_mo_trafos(
     # get absolute of transformed orbital overlap
     symm_trafo_ovlp = np.abs(symm_trafo_ovlp)
 
-    # initialize list that gathers important orbital contributions to transformed
-    # orbital
-    orb_contrib: List[Tuple[int, List[int]]] = []
+    # get masked array of remaining orbitals in first tuple
+    remain_symm_trafo_ovlp: np.ma.MaskedArray = np.ma.MaskedArray(symm_trafo_ovlp)
 
-    # calculate threshold up to which orbital contributions are considered
-    thresh = symm_tol * np.max(symm_trafo_ovlp, axis=1) if rel_thresh else symm_tol
+    # loop until all orbitals have been assigned
+    while not remain_symm_trafo_ovlp.mask.all():
+        # add orbital with maximum contribution to first tuple
+        max_contrib_idx = np.argmax(np.max(remain_symm_trafo_ovlp, axis=1)).item()
+        set1 = {max_contrib_idx}
+        remain_symm_trafo_ovlp[max_contrib_idx] = np.ma.masked
 
-    # get elements of with significant overlap
-    signif_ovlp = symm_trafo_ovlp > thresh
+        # generate indices with largest overlap
+        largest_ovlp_idx = np.argsort(symm_trafo_ovlp[max_contrib_idx], axis=None)[::-1]
 
-    # loop over orbitals
-    for orb in range(tot_len):
-        # add empty list for current orbital
-        orb_contrib.append((orb, signif_ovlp[orb].nonzero()[0].tolist()))
+        # generate second tuple
+        set2 = set()
+        acc_ovlp = 0.0
+        for idx in largest_ovlp_idx:
+            acc_ovlp += symm_trafo_ovlp[max_contrib_idx, idx] ** 2
+            set2.add(idx)
+            if (
+                acc_ovlp > symm_tol
+                or len(set2) == remain_symm_trafo_ovlp[:, 0].count() + 1
+            ):
+                break
 
-    # loop over orbitals until none are left
-    while len(orb_contrib) > 0:
-        # add current orbital to first tuple
-        tup1 = [orb_contrib[0][0]]
+        # sort second tuple and convert to list
+        tup2 = sorted(set2)
 
-        # add all orbitals that the current orbital transforms into to second tuple
-        tup2 = set(orb_contrib[0][1])
+        # add orbitals to first tuple until both tuples have the same size
+        while len(set2) > len(set1):
+            # add orbital to first tuple with maximum overlap with orbitals in second
+            # tuple
+            orb_idx = np.argmax(np.max(remain_symm_trafo_ovlp, axis=1)).item() % tot_len
+            set1.add(orb_idx)
+            remain_symm_trafo_ovlp[orb_idx] = np.ma.masked
 
-        # delete current orbital
-        del orb_contrib[0]
+            # add orbitals to second tuple
+            acc_ovlp = np.sum(symm_trafo_ovlp[orb_idx, tup2] ** 2)
+            largest_ovlp_idx = np.argsort(symm_trafo_ovlp[orb_idx], axis=None)[::-1]
+            for idx in largest_ovlp_idx:
+                if acc_ovlp > symm_tol or len(set2) == remain_symm_trafo_ovlp[
+                    :, 0
+                ].count() + len(set1):
+                    break
+                if idx in tup2:
+                    continue
+                acc_ovlp += symm_trafo_ovlp[orb_idx, idx] ** 2
+                set2.add(idx)
 
-        # set orbital counter
-        orb = 0
+            # sort second tuple and convert to list
+            tup2 = sorted(set2)
 
-        # loop until all remaining orbitals are considered
-        while orb < len(orb_contrib):
-            # check if any orbital this orbital transforms into coincides with any
-            # orbital in second tuple
-            if not tup2.isdisjoint(orb_contrib[orb][1]):
-                # add this orbital to first tuple
-                tup1.append(orb_contrib[orb][0])
+        # set starting tuple
+        start_set = set1
 
-                # add orbital this orbital transforms into to second tuple
-                tup2.update(orb_contrib[orb][1])
+        # sort first tuple and convert to list
+        tup1 = sorted(set1)
 
-                # delete this orbital
-                del orb_contrib[orb]
+        # add set of orbitals
+        symm_eqv_mos.append((tuple(tup1), tuple(tup2)))
 
-                # reset orbital counter
-                orb = 0
+        # initialize sets of previous sets
+        prev_tups = set()
 
-            else:
-                # increment orbital counter
-                orb += 1
+        # generate entire cyclic block
+        while set2 != start_set:
+            # set first tuple
+            set1 = set2
 
-        # check if every set of orbitals transforms into another set of orbitals of the
-        # same size
-        if len(tup1) == len(tup2):
+            # initialize second tuple
+            set2 = set()
+
+            # sort first tuple and convert to list
+            tup1 = sorted(set1)
+
+            prev_tups.add(tuple(tup1))
+
+            # remove first tuple from remaining orbitals
+            remain_symm_trafo_ovlp[tup1] = np.ma.masked
+
+            # add orbitals to second tuple
+            largest_ovlp_idx = np.argsort(symm_trafo_ovlp[tup1], axis=None)[::-1]
+            for idx in largest_ovlp_idx:
+                set2.add(idx % tot_len)
+                if len(set2) == len(set1):
+                    break
+
+            # sort first tuple and convert to list
+            tup2 = sorted(set2)
+
+            # check if starting tuple can be reached
+            if tuple(tup2) in prev_tups:
+                raise RuntimeError
+
             # add set of orbitals
-            symm_eqv_mos.append((tuple(sorted(tup1)), tuple(sorted(tup2))))
-
-        else:
-            raise RuntimeError(
-                "An error occured when trying to detect orbital symmetry."
-            )
+            symm_eqv_mos.append((tuple(tup1), tuple(tup2)))
 
     return symm_eqv_mos
 

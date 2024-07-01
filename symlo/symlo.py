@@ -125,24 +125,36 @@ def symmetrize_mos(
 
     # loop over symmetry-invariant blocks
     for block in tot_symm_blocks:
-        # detect symmetry-equivalent orbitals
-        symm_eqv_mo = detect_eqv_symm(
-            symm_mo_coeff[:, block], trafo_ao, symm_eqv_thresh, nop, True
-        )
+        # set threshold
+        thresh = symm_eqv_thresh
 
-        # symmetrize block
-        symm_block = SymCls_all(mol, trafo_ao, symm_eqv_mo, symm_mo_coeff[:, block])
-        symm_block.verbose = verbose
-        symm_block.max_cycle = max_cycle
-        symm_block.conv_tol = 1e1 * conv_tol
-        symm_mo_coeff[:, block], _, g_max = symm_block.kernel()
+        # symmetrize orbitals until successful completion
+        success = False
+        while not success:
+            try:
+                # detect symmetry-equivalent orbitals
+                symm_eqv_mo = detect_eqv_symm(
+                    symm_mo_coeff[:, block], trafo_ao, thresh, nop, True
+                )
 
-        # detect symmetry-equivalent orbitals again, threshold is now twice the maximum
-        # element after symmetrization (this can be necessary when two different sets
-        # of orbitals were detected for a symmetry operation and its inverse)
-        symm_eqv_mo = detect_eqv_symm(
-            symm_mo_coeff[:, block], trafo_ao, 2 * g_max, nop, False
-        )
+                # symmetrize block
+                symm_block = SymCls_all(
+                    mol, trafo_ao, symm_eqv_mo, symm_mo_coeff[:, block]
+                )
+                symm_block.verbose = verbose
+                symm_block.max_cycle = max_cycle
+                symm_block.conv_tol = 1e1 * conv_tol
+                temp_mo_coeff, _, g_max = symm_block.kernel()
+
+                # symmetrization succeeded
+                success = True
+
+            except RuntimeError:
+                thresh += (1 - thresh) / 2
+                log.info(f"Symmetrization failed, threshold increased to: {thresh}")
+
+        # set symmetrized orbitals
+        symm_mo_coeff[:, block] = temp_mo_coeff
 
         # append blocks shifted by starting index
         blocks.append([start_idx + orb for orb in block])
@@ -178,9 +190,10 @@ def symmetrize_mos(
                         if symm_eqv_mo_list[idx][0] == prev_tuple:
                             break
                     else:
-                        raise RuntimeError(
+                        log.error(
                             "Could not find consistent cyclic symmetry relationships"
                         )
+                        raise RuntimeError
                     set_size += 1
                     prev_tuple = symm_eqv_mo_list[idx][1]
                     del symm_eqv_mo_list[idx]
@@ -285,10 +298,20 @@ def detect_mo_symm(
 
     # loop over symmetry-invariant blocks
     for block in tot_symm_blocks:
-        # detect symmetry-equivalent orbitals
-        symm_eqv_mo = detect_eqv_symm(
-            mo_coeff[:, reorder[block]], trafo_ao, symm_eqv_thresh, nop, True
-        )
+        # set threshold
+        thresh = symm_eqv_thresh
+
+        # detect symmetry-equivalent orbitals until successful completion
+        success = False
+        while not success:
+            try:
+                symm_eqv_mo = detect_eqv_symm(
+                    mo_coeff[:, reorder[block]], trafo_ao, thresh, nop, True
+                )
+                success = True
+            except RuntimeError:
+                thresh += (1 - thresh) / 2
+                log.info(f"Symmetry detection failed, threshold increased to: {thresh}")
 
         # add equivalent orbitals
         for op in range(nop):
@@ -708,15 +731,15 @@ class SymCls_all(SymCls):
         """
         mo_coeff, finished, g_max = super().kernel(callback, verbose)
 
-        while g_max >= self.conv_tol:
+        if g_max >= self.conv_tol:
             self.log.info("Restarting symmetrization")
             mo_coeff, finished, g_max = super().kernel(callback, verbose)
 
-        if not finished:
-            self.log.error(
+        if not finished or g_max >= 10 * self.conv_tol:
+            self.log.warn(
                 "Symmetrization of symmetry-equivalent orbitals within "
-                "symmetry-invariant blocks has not converged. Try increasing "
-                "max_cycle or reducing symm_eqv_thresh."
+                "symmetry-invariant blocks has not converged. Try increasing max_cycle "
+                "or reducing symm_eqv_thresh."
             )
             raise RuntimeError
 
@@ -923,11 +946,11 @@ class SymCls_eqv(SymCls):
         """
         mo_coeff, finished, g_max = super().kernel(callback, verbose)
 
-        while g_max >= self.conv_tol:
+        if g_max >= self.conv_tol:
             self.log.info("Restarting symmetrization")
             mo_coeff, finished, g_max = super().kernel(callback, verbose)
 
-        if not finished:
+        if not finished or g_max >= 10 * self.conv_tol:
             self.log.error(
                 "Symmetrization of symmetry-invariant blocks has not converged. Try "
                 "increasing max_cycle or reducing inv_block_thresh."
@@ -1058,7 +1081,7 @@ def detect_eqv_symm(
     trafo_ao: np.ndarray,
     symm_eqv_tol: float,
     nop: int,
-    rel_thresh: bool,
+    thresh: bool,
 ) -> List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]]:
     """
     this function detects symmetry-equivalent orbitals
@@ -1076,7 +1099,7 @@ def detect_eqv_symm(
 
         # add list of symmetry equivalent mos for this symmetry operation
         symm_eqv_mo.append(
-            get_mo_trafos(symm_trafo_ovlp, mo_coeff.shape[1], symm_eqv_tol, rel_thresh)
+            get_mo_trafos(symm_trafo_ovlp, mo_coeff.shape[1], symm_eqv_tol, thresh)
         )
 
     return symm_eqv_mo
