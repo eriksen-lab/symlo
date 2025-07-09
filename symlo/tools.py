@@ -7,11 +7,11 @@ tools module
 
 from __future__ import annotations
 
-__author__ = "Jonas Greiner, Johannes Gutenberg-Universität Mainz, Germany"
+__author__ = "Jonas Greiner, Technical University of Denmark, Denmark"
 __license__ = "MIT"
 __version__ = "0.1"
 __maintainer__ = "Jonas Greiner"
-__email__ = "jonas.greiner@uni-mainz.de"
+__email__ = "jongr@dtu.dk"
 __status__ = "Development"
 
 import numpy as np
