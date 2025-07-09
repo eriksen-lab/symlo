@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from typing import Tuple, List, Optional
 
 
-COORD_TOL = 1.0e-14
+COORD_TOL = 1.0e-13
 
 
 def symmetrize_mos(
