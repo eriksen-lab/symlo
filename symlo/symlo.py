@@ -153,7 +153,7 @@ def symmetrize_mos(
                 symm_block.verbose = verbose
                 symm_block.max_cycle = max_cycle
                 symm_block.conv_tol = 1e1 * conv_tol
-                temp_mo_coeff, _, g_max = symm_block.kernel()
+                temp_mo_coeff, _, _ = symm_block.kernel()
 
                 # symmetrization succeeded
                 success = True

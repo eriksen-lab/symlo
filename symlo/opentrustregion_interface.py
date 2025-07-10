@@ -61,7 +61,7 @@ class SymCls_OTR(SymCls):
         # ensure MO coefficients are provided and orbitals can be optimized
         assert self.mo_coeff is not None
         if self.mo_coeff.shape[1] <= 1:
-            return self.mo_coeff
+            return self.mo_coeff, True, 0.0
         
         # save starting mo coefficients
         mo_coeff_start = self.mo_coeff.copy()
@@ -78,9 +78,12 @@ class SymCls_OTR(SymCls):
             self.update_orbs,
             self.n_param,
             getattr(self, "precond", None),
+            getattr(self, "conv_check", None),
             getattr(self, "stability", None),
             getattr(self, "line_search", None),
+            getattr(self, "davidson", None),
             getattr(self, "jacobi_davidson", None),
+            getattr(self, "prefer_jacobi_davidson", None),
             getattr(self, "conv_tol", None),
             getattr(self, "n_random_trial_vectors", None),
             getattr(self, "start_trust_radius", None),
@@ -104,8 +107,49 @@ class SymCls_OTR(SymCls):
     
 
 class SymCls_all_OTR(SymCls_all, SymCls_OTR):
-    pass
+    def kernel(
+        self, callback: Optional[Callable] = None, verbose: Optional[int] = None
+    ) -> Tuple[np.ndarray, bool, float]:
+        """
+        this function calls the parent class kernel function and checks whether the
+        algorithm has converged
+        """
+        mo_coeff, finished, g_max = SymCls_OTR.kernel(self, callback, verbose)
+
+        if g_max >= self.conv_tol:
+            self.log.info("Restarting symmetrization")
+            mo_coeff, finished, g_max = SymCls_OTR.kernel(self, callback, verbose)
+
+        if not finished:
+            self.log.warn(
+                "Symmetrization of symmetry-equivalent orbitals within "
+                "symmetry-invariant blocks has not converged. Try increasing max_cycle "
+                "or reducing symm_eqv_thresh."
+            )
+            raise RuntimeError
+
+        return mo_coeff, finished, g_max
 
 
 class SymCls_eqv_OTR(SymCls_eqv, SymCls_OTR):
-    pass
+    def kernel(
+        self, callback: Optional[Callable] = None, verbose: Optional[int] = None
+    ) -> Tuple[np.ndarray, bool, float]:
+        """
+        this function calls the parent class kernel function and checks whether the
+        algorithm has converged
+        """
+        mo_coeff, finished, g_max = SymCls_OTR.kernel(self, callback, verbose)
+
+        if g_max >= self.conv_tol:
+            self.log.info("Restarting symmetrization")
+            mo_coeff, finished, g_max = SymCls_OTR.kernel(self, callback, verbose)
+
+        if not finished:
+            self.log.error(
+                "Symmetrization of symmetry-invariant blocks has not converged. Try "
+                "increasing max_cycle or reducing inv_block_thresh."
+            )
+            raise RuntimeError
+
+        return mo_coeff, finished, g_max
