@@ -825,59 +825,58 @@ def get_mo_trafos(
 
 
 def get_symm_inv_blocks(
-    all_symm_trafo_ovlp: np.ndarray, thresh_perc: float
+    all_symm_trafo_ovlp: np.ndarray
 ) -> Tuple[List[List[int]], np.ndarray]:
     """
     this function finds blocks that are invariant with respect to all symmetry
     operations
     """
-    # set threshold for sparse array
-    thresh = thresh_perc * np.max(all_symm_trafo_ovlp, axis=0)
+    # start with single orbital blocks
+    blocks = [[i] for i in range(all_symm_trafo_ovlp.shape[0])]
 
-    # copy array
-    thresh_trafo_ovlp = all_symm_trafo_ovlp.copy()
-
-    # set elements below threshold to zero
-    thresh_trafo_ovlp[thresh_trafo_ovlp < thresh] = 0.0
-
-    # create sparse array
-    sparse_trafo_ovlp = csr_array(thresh_trafo_ovlp)
-
-    # determine optimal ordering of orbitals
-    reorder = sc.sparse.csgraph.reverse_cuthill_mckee(sparse_trafo_ovlp)
-
-    # reorder array
-    thresh_trafo_ovlp = thresh_trafo_ovlp[reorder.reshape(-1, 1), reorder]
-
-    # initialize list for mo blocks that are approximately invariant with respect to
-    # all symmetry operations and add first block
-    symm_inv_blocks: List[List[int]] = [[0]]
-
-    # initialize row counter
-    start = 1
-
-    # perform until all orbitals are considered
+    # continuously combine blocks
     while True:
-        # loop over mos
-        for mo in range(start, all_symm_trafo_ovlp.shape[0]):
-            # check if mos overlaps with last block
-            if thresh_trafo_ovlp[mo, symm_inv_blocks[-1]].any():
-                # add mo
-                symm_inv_blocks[-1].append(mo)
+        # get block with the lowest total contribution for a single orbital
+        min_val = np.inf
+        for block_idx, block in enumerate(blocks):
+            for orb in block:
+                val = np.sum(all_symm_trafo_ovlp[orb, block])
+                if val < min_val:
+                    min_val = val
+                    min_block_idx = block_idx
+                    min_orb = orb
 
-            else:
-                # create new block
-                symm_inv_blocks.append([mo])
+        # get minimum block
+        min_block = blocks[min_block_idx]
 
-                # start at next mo
-                start = mo + 1
-
-                # block is finished
-                break
-
-        else:
-            # all orbitals finished
+        # stop if the lowest total contribution is above threshold
+        if min_val > (1 - 1 / (len(min_block) + 1)):
             break
+
+        # merge with block which has the highest single overlap with this block
+        best_gain = 0.0
+        for block_idx, other_block in enumerate(blocks):
+            if block_idx == min_block_idx:
+                continue
+            gain = np.max(all_symm_trafo_ovlp[min_orb, other_block])
+            if gain > best_gain:
+                best_gain = gain
+                best_idx = block_idx
+
+        # merge blocks
+        new_block = sorted(set(min_block + blocks[best_idx]))
+        blocks[min_block_idx] = new_block
+        del blocks[best_idx]
+
+    # get reorder array
+    reorder = np.concatenate(blocks)
+
+    # get blocks in reordered array
+    symm_inv_blocks: List[List[int]] = []
+    counter = 0
+    for block in blocks:
+        symm_inv_blocks.append([counter + i for i in range(len(block))])
+        counter += len(block)
 
     return symm_inv_blocks, reorder
 

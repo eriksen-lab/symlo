@@ -44,7 +44,6 @@ def symmetrize_mos(
     verbose: Optional[int] = None,
     max_cycle: int = 100,
     conv_tol: float = 1e-13,
-    inv_block_thresh: float = 0.3,
     symm_eqv_thresh: float = 0.3,
     heatmap: bool = False,
     start_idx: int = 0,
@@ -99,12 +98,10 @@ def symmetrize_mos(
     # matrices for each symmetry operation are not symmetric because symmetry
     # operations are not necessarily unitary but their sum is because a group includes
     # an inverse element for every symmetry operation)
-    all_symm_trafo_ovlp = np.sum(np.abs(trafo_ovlp), axis=0) / nop
+    all_symm_trafo_ovlp = np.sum(trafo_ovlp**2, axis=0) / nop
 
     # get blocks that are invariant with respect to all symmetry operations
-    tot_symm_blocks, reorder = get_symm_inv_blocks(
-        all_symm_trafo_ovlp, inv_block_thresh
-    )
+    tot_symm_blocks, reorder = get_symm_inv_blocks(all_symm_trafo_ovlp)
 
     # log data
     log.info("Symmetry-invariant orbital blocks:")
@@ -243,7 +240,6 @@ def detect_mo_symm(
     mo_coeff: np.ndarray,
     point_group: str,
     verbose: Optional[int] = None,
-    inv_block_thresh: float = 0.3,
     symm_eqv_thresh: float = 0.3,
     start_idx: int = 0,
 ) -> List[List[Tuple[Tuple[int, ...], Tuple[int, ...]]]]:
@@ -283,12 +279,10 @@ def detect_mo_symm(
     # matrices for each symmetry operation are not symmetric because symmetry
     # operations are not necessarily unitary but their sum is because a group includes
     # an inverse element for every symmetry operation)
-    all_symm_trafo_ovlp = np.sum(np.abs(trafo_ovlp), axis=0) / nop
+    all_symm_trafo_ovlp = np.sum(trafo_ovlp**2, axis=0) / nop
 
     # get blocks that are invariant with respect to all symmetry operations
-    tot_symm_blocks, reorder = get_symm_inv_blocks(
-        all_symm_trafo_ovlp, inv_block_thresh
-    )
+    tot_symm_blocks, reorder = get_symm_inv_blocks(all_symm_trafo_ovlp)
 
     # log data
     log.info("Symmetry-invariant orbital blocks:")
