@@ -850,7 +850,7 @@ def get_symm_inv_blocks(
         min_block = blocks[min_block_idx]
 
         # stop if the lowest total contribution is above threshold
-        if min_val > (1 - 1 / (len(min_block) + 1)):
+        if min_val > (1 - 1 / (len(min_block) + 1)) or len(blocks) == 1:
             break
 
         # merge with block which has the highest single overlap with this block
