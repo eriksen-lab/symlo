@@ -27,7 +27,7 @@ from symlo.tools import (
     get_symm_inv_blocks,
     get_symm_unique_mos,
 )
-from symlo.symmetrization import SymCls_all, SymCls_eqv
+from symlo.symmetrization import SymCls_all_PySCF, SymCls_eqv_PySCF
 from symlo.opentrustregion_interface import SymCls_all_OTR, SymCls_eqv_OTR
 
 if TYPE_CHECKING:
@@ -67,8 +67,8 @@ def symmetrize_mos(
 
     # set backend
     if backend == "pyscf":
-        symcls_eqv = SymCls_eqv
-        symcls_all = SymCls_all
+        symcls_eqv = SymCls_eqv_PySCF
+        symcls_all = SymCls_all_PySCF
     elif backend == "opentrustregion":
         symcls_eqv = SymCls_eqv_OTR
         symcls_all = SymCls_all_OTR

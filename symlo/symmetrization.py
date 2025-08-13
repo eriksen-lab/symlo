@@ -282,7 +282,7 @@ class SymCls_all(SymCls):
                 g0[incl, :] -= uu_ia @ su_pa.T
                 g0[excl, :] -= uu_ia.T @ us_ip
 
-        g = MAX_CONV * self.pack_uniq_var(g0 - g0.T) * 2
+        g = self.pack_uniq_var(g0 - g0.T) * 2
 
         # calculate hessian diagonal
         h_diag0 = np.zeros((norb, norb), dtype=np.float64)
@@ -306,7 +306,7 @@ class SymCls_all(SymCls):
                     + np.einsum("aa,ii->ia", su_ab, us_ij)
                 )
 
-        h_diag = MAX_CONV * self.pack_uniq_var(h_diag0 + h_diag0.T) * 2
+        h_diag = self.pack_uniq_var(h_diag0 + h_diag0.T) * 2
 
         def h_op(x: np.ndarray):
             """
@@ -341,7 +341,7 @@ class SymCls_all(SymCls):
                         + uu_ia.T @ x_ip @ ss_pq
                     )
 
-            return MAX_CONV * self.pack_uniq_var(hx0 - hx0.T) * 4
+            return self.pack_uniq_var(hx0 - hx0.T) * 4
 
         return g, h_op, h_diag
 
@@ -380,7 +380,7 @@ class SymCls_all(SymCls):
                 g0[incl, :] -= uu_ia @ su_pa.T
                 g0[excl, :] -= uu_ia.T @ us_ip
 
-        return MAX_CONV * self.pack_uniq_var(g0 - g0.T) * 2
+        return self.pack_uniq_var(g0 - g0.T) * 2
 
     def cost_function(self, u: Optional[np.ndarray] = None):
         """
@@ -406,7 +406,7 @@ class SymCls_all(SymCls):
                     g_max = max(g_max, np.max(np.abs(g)))
                 p += np.sum(g**2)
 
-        return MAX_CONV * p, g_max
+        return p, g_max
 
     def kernel(
         self, callback: Optional[Callable] = None, verbose: Optional[int] = None
@@ -513,7 +513,7 @@ class SymCls_eqv(SymCls):
                 g0[incl, :] -= uu_ia @ su_pa.T
                 g0[excl, :] -= uu_ia.T @ us_ip
 
-        g = MAX_CONV * self.pack_uniq_var(g0 - g0.T) * 2
+        g = self.pack_uniq_var(g0 - g0.T) * 2
 
         # calculate hessian diagonal
         h_diag0 = np.zeros((norb, norb), dtype=np.float64)
@@ -533,7 +533,7 @@ class SymCls_eqv(SymCls):
             h_diag0[incl, :] += np.diag(su_pa_su_paT[orbset])[np.newaxis, :]
             h_diag0[excl, :] += np.diag(us_ipT_us_ip[orbset])[np.newaxis, :]
 
-        h_diag = MAX_CONV * self.pack_uniq_var(h_diag0 + h_diag0.T) * 2
+        h_diag = self.pack_uniq_var(h_diag0 + h_diag0.T) * 2
 
         def h_op(x: np.ndarray):
             """
@@ -558,7 +558,7 @@ class SymCls_eqv(SymCls):
                 hx0[incl, :] += x_ip @ su_pa_su_paT[orbset]
                 hx0[excl, :] += x_ap @ us_ipT_us_ip[orbset]
 
-            return MAX_CONV * self.pack_uniq_var(hx0 - hx0.T) * 4
+            return self.pack_uniq_var(hx0 - hx0.T) * 4
 
         return g, h_op, h_diag
 
@@ -597,7 +597,7 @@ class SymCls_eqv(SymCls):
                 g0[incl, :] -= uu_ia @ su_pa.T
                 g0[excl, :] -= uu_ia.T @ us_ip
 
-        return MAX_CONV * self.pack_uniq_var(g0 - g0.T) * 2
+        return self.pack_uniq_var(g0 - g0.T) * 2
 
     def cost_function(self, u: Optional[np.ndarray] = None):
         """
@@ -621,7 +621,7 @@ class SymCls_eqv(SymCls):
                     g_max = max(g_max, np.max(np.abs(g)))
                 p += np.sum(g**2)
 
-        return MAX_CONV * p, g_max
+        return p, g_max
 
     def kernel(
         self, callback: Optional[Callable] = None, verbose: Optional[int] = None
@@ -644,4 +644,64 @@ class SymCls_eqv(SymCls):
             raise RuntimeError
 
         return mo_coeff, finished, g_max
+    
+
+class SymCls_all_PySCF(SymCls_all):
+    def gen_g_hop(self, u: np.ndarray):
+        """
+        this function generates the gradient, hessian diagonal and the function that
+        calculates the matrix-vector product of the hessian with some vector x
+        """
+        g, h_op, h_diag = super().gen_g_hop(u)
+
+        def scaled_h_op(x: np.ndarray):
+            """
+            this function calculates the matrix-vector product with some vector x
+            """
+            return MAX_CONV * h_op(x)
+
+        return MAX_CONV * g, scaled_h_op, MAX_CONV * h_diag
+
+    def get_grad(self, u: Optional[np.ndarray] = None):
+        """
+        this function calculates the gradient
+        """
+        return MAX_CONV * super().get_grad(u)
+
+    def cost_function(self, u: Optional[np.ndarray] = None):
+        """
+        this function calculates the value of the cost function
+        """
+        p, g_max = super().cost_function(u)
+        return MAX_CONV * p, g_max
+
+
+class SymCls_eqv_PySCF(SymCls_eqv):
+    def gen_g_hop(self, u: np.ndarray):
+        """
+        this function generates the gradient, hessian diagonal and the function that
+        calculates the matrix-vector product of the hessian with some vector x
+        """
+        g, h_op, h_diag = super().gen_g_hop(u)
+
+        def scaled_h_op(x: np.ndarray):
+            """
+            this function calculates the matrix-vector product with some vector x
+            """
+            return MAX_CONV * h_op(x)
+
+        return MAX_CONV * g, scaled_h_op, MAX_CONV * h_diag
+
+    def get_grad(self, u: Optional[np.ndarray] = None):
+        """
+        this function calculates the gradient
+        """
+        return MAX_CONV * super().get_grad(u)
+
+    def cost_function(self, u: Optional[np.ndarray] = None):
+        """
+        this function calculates the value of the cost function
+        """
+        p, g_max = super().cost_function(u)
+        return MAX_CONV * p, g_max
 
