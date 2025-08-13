@@ -51,6 +51,10 @@ class SymCls_OTR(SymCls):
         grad, hess_x, hdiag = self.gen_g_hop(u)
         self.mo_coeff = self.mo_coeff @ u
         return func, 2 * grad, 2 * hdiag, lambda x: 2 * hess_x(x)
+    
+    # convergence check function
+    def conv_check(self) -> bool:
+            return True if self.g_max < self.conv_tol else False
 
     # kernel function
     def kernel(
